@@ -53,6 +53,46 @@ beforeAll(() => {
                   runtimeAttributes: { health: 100, status: "active", crewCapacity: 2 },
                   capabilities: ["habitat-command"],
                 },
+                {
+                  id: "starter-life-support-1",
+                  blueprintId: "life-support",
+                  displayName: "Life Support",
+                  connectedTo: ["starter-command-1"],
+                  runtimeAttributes: { health: 100, status: "active", crewCapacity: 2 },
+                  capabilities: ["atmosphere-control", "redundant-life-support"],
+                },
+                {
+                  id: "starter-basic-battery-1",
+                  blueprintId: "basic-battery",
+                  displayName: "Basic Battery",
+                  connectedTo: ["starter-command-1"],
+                  runtimeAttributes: { health: 100, status: "offline", currentEnergyKwh: 500 },
+                  capabilities: ["power-storage"],
+                },
+                {
+                  id: "starter-supply-cache-1",
+                  blueprintId: "supply-cache",
+                  displayName: "Supply Cache",
+                  connectedTo: ["starter-command-1"],
+                  runtimeAttributes: { health: 100, status: "offline", storageMassKg: 6000 },
+                  capabilities: ["storage"],
+                },
+                {
+                  id: "starter-workshop-fabricator-1",
+                  blueprintId: "workshop-fabricator",
+                  displayName: "Workshop Fabricator",
+                  connectedTo: ["starter-command-1"],
+                  runtimeAttributes: { health: 100, status: "online" },
+                  capabilities: ["basic-fabrication"],
+                },
+                {
+                  id: "starter-basic-suitport-1",
+                  blueprintId: "basic-suitport",
+                  displayName: "Basic Suitport",
+                  connectedTo: ["starter-command-1"],
+                  runtimeAttributes: { health: 100, status: "online" },
+                  capabilities: ["limited-eva", "suitport-access"],
+                },
               ],
               blueprints: [
                 {
@@ -156,7 +196,7 @@ describe("habitat cli", () => {
       });
 
       const modules = JSON.parse(readFileSync(modulesPath, "utf8"));
-      expect(modules.modules).toHaveLength(1);
+      expect(modules.modules).toHaveLength(6);
       expect(modules.blueprints).toHaveLength(1);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -184,6 +224,7 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("Artemis Ridge");
       expect(result.stdout).toContain("status=online");
       expect(result.stdout).toContain("catalogVersion=2026-06-24");
+      expect(result.stdout).toContain("modules=6");
       expect(requests).toEqual([
         {
           method: "GET",
@@ -191,6 +232,155 @@ describe("habitat cli", () => {
           body: null,
         },
       ]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module list shows the hydrated starter modules", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["module", "list"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("cmd-1");
+      expect(result.stdout).toContain("Command Module");
+      expect(result.stdout).toContain("suit-1");
+      expect(result.stdout).toContain("Basic Suitport");
+      expect(result.stdout).not.toContain("starter-command-1\t");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module show accepts a short alias and prints the full module details", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["module", "show", "cmd-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("alias=cmd-1");
+      expect(result.stdout).toContain("id=starter-command-1");
+      expect(result.stdout).toContain("blueprintId=command-module");
+      expect(result.stdout).toContain('capabilities=["habitat-command"]');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module create update and delete manage local module state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const createResult = await runCli(
+        [
+          "module",
+          "create",
+          "--blueprint-id",
+          "sensor-mast",
+          "--name",
+          "Sensor Mast",
+          "--connect-to",
+          "starter-command-1",
+          "--capability",
+          "environment-sensing",
+          "--runtime-attribute",
+          "health=100",
+          "--runtime-attribute",
+          "status=online",
+        ],
+        cwd,
+        {
+          KEPLER_BASE_URL: baseUrl,
+          KEPLER_PLANET_TOKEN: "test-token",
+        },
+      );
+
+      expect(createResult.exitCode).toBe(0);
+      expect(createResult.stdout).toContain("Created local module");
+      expect(createResult.stdout).toContain("alias=sensor-1");
+      const createdIdLine = createResult.stdout
+        .split("\n")
+        .find((line) => line.startsWith("id="));
+      const createdId = createdIdLine?.replace("id=", "").trim() ?? "";
+      expect(createdId).toMatch(/^module_/);
+
+      const updateResult = await runCli(
+        [
+          "module",
+          "update",
+          "sensor-1",
+          "--name",
+          "Sensor Mast Mk II",
+          "--capability",
+          "environment-sensing",
+          "--capability",
+          "long-range-scan",
+          "--runtime-attribute",
+          "health=85",
+          "--runtime-attribute",
+          "status=damaged",
+        ],
+        cwd,
+        {
+          KEPLER_BASE_URL: baseUrl,
+          KEPLER_PLANET_TOKEN: "test-token",
+        },
+      );
+
+      expect(updateResult.exitCode).toBe(0);
+      expect(updateResult.stdout).toContain("Updated local module sensor-1");
+
+      const showResult = await runCli(["module", "show", "sensor-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(showResult.exitCode).toBe(0);
+      expect(showResult.stdout).toContain("alias=sensor-1");
+      expect(showResult.stdout).toContain("displayName=Sensor Mast Mk II");
+      expect(showResult.stdout).toContain('capabilities=["environment-sensing","long-range-scan"]');
+      expect(showResult.stdout).toContain('runtimeAttributes={"health":85,"status":"damaged"}');
+
+      const deleteResult = await runCli(["module", "delete", "sensor-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(deleteResult.exitCode).toBe(0);
+      expect(deleteResult.stdout).toContain("Deleted local module sensor-1");
+
+      const listResult = await runCli(["module", "list"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(listResult.exitCode).toBe(0);
+      expect(listResult.stdout).not.toContain("sensor-1");
+      expect(listResult.stdout).toContain("cmd-1");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
