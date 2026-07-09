@@ -1,16 +1,41 @@
 import type { KeplerConfig } from "./config";
 
-export type KeplerRegistrationResponse = {
-  habitatId: string;
-  catalogVersion: string;
-  starterModules: KeplerStarterModule[];
+export type KeplerBlueprint = {
+  id: string;
+  blueprintId: string;
+  displayName: string;
+  description: string;
+  status: "draft" | "published";
+  output: Record<string, unknown>;
+  inputs: Record<string, unknown>;
+  buildTicks: number;
+  repeatable: boolean;
+  productionCost?: Record<string, unknown>;
+  requiredFacility?: Record<string, unknown>;
+  prerequisites?: string[];
+  unlocks?: string[];
+  level?: number | null;
+  target?: Record<string, unknown>;
+  facilityLevel?: Record<string, unknown>;
+  attachmentPoints?: Record<string, unknown>;
+  attachmentRequirements?: Array<Record<string, unknown>>;
+  runtimeAttributes?: Record<string, unknown>;
+  capabilities?: string[];
 };
 
 export type KeplerStarterModule = {
+  id: string;
   blueprintId: string;
   displayName: string;
+  connectedTo: string[];
   runtimeAttributes: Record<string, unknown>;
   capabilities: string[];
+};
+
+export type KeplerRegistrationResponse = {
+  habitatId: string;
+  starterModules: KeplerStarterModule[];
+  blueprints: KeplerBlueprint[];
 };
 
 export type KeplerHabitat = {
@@ -20,6 +45,10 @@ export type KeplerHabitat = {
   catalogVersion: string;
   status: string;
   lastSeenAt: string | null;
+};
+
+export type KeplerHabitatResponse = {
+  habitat: KeplerHabitat;
 };
 
 async function keplerRequest<T>(config: KeplerConfig, path: string, init: RequestInit): Promise<T> {
@@ -51,12 +80,10 @@ export function registerHabitat(config: KeplerConfig, displayName: string, habit
   });
 }
 
-export function listHabitats(config: KeplerConfig) {
-  return keplerRequest<{ habitats: KeplerHabitat[] }>(config, "/habitats", { method: "GET" });
-}
-
-export function deleteHabitat(config: KeplerConfig, habitatId: string) {
-  return keplerRequest<void>(config, `/habitats/${encodeURIComponent(habitatId)}`, {
-    method: "DELETE",
-  });
+export function getHabitatRegistration(config: KeplerConfig, habitatId: string) {
+  return keplerRequest<KeplerHabitatResponse>(
+    config,
+    `/habitats/${encodeURIComponent(habitatId)}/registration`,
+    { method: "GET" },
+  );
 }

@@ -3,51 +3,99 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  createModule,
-  deleteModule,
-  getModule,
-  hydrateModulesFromStarterModules,
+  hydrateModulesFromRegistration,
   readModuleState,
-  updateModule,
-  writeModuleState,
+  readRegistration,
+  removeModuleState,
+  removeRegistration,
+  writeRegistration,
 } from "./state";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-state-"));
 }
 
-describe("habitat module state", () => {
-  test("hydrates local module records from starter modules", () => {
-    const state = hydrateModulesFromStarterModules("2026-06-24", [
-      { blueprintId: "alpha", displayName: "Alpha", runtimeAttributes: { level: 1 }, capabilities: ["scan"] },
-      { blueprintId: "beta", displayName: "Beta", runtimeAttributes: { level: 2 }, capabilities: ["mine"] },
-      { blueprintId: "gamma", displayName: "Gamma", runtimeAttributes: { level: 3 }, capabilities: ["build"] },
-      { blueprintId: "delta", displayName: "Delta", runtimeAttributes: { level: 4 }, capabilities: ["store"] },
-      { blueprintId: "epsilon", displayName: "Epsilon", runtimeAttributes: { level: 5 }, capabilities: ["route"] },
-      { blueprintId: "zeta", displayName: "Zeta", runtimeAttributes: { level: 6 }, capabilities: ["dock"] },
-    ]);
+describe("habitat state", () => {
+  test("persists registration details in .habitat/registration.json", () => {
+    const cwd = makeTempDir();
 
-    expect(state.catalogVersion).toBe("2026-06-24");
-    expect(state.modules).toHaveLength(6);
-    expect(state.modules[0]?.blueprintId).toBe("alpha");
-    expect(state.modules[0]?.status).toBe("active");
-    expect(state.modules[0]?.condition).toBe(100);
+    try {
+      writeRegistration(
+        {
+          habitatId: "habitat-123",
+          habitatUuid: "11111111-1111-4111-8111-111111111111",
+          displayName: "Artemis Ridge",
+          baseUrl: "https://planet.turingguild.com",
+          tokenSource: "KEPLER_PLANET_TOKEN",
+        },
+        cwd,
+      );
+
+      expect(readRegistration(cwd)).toEqual({
+        habitatId: "habitat-123",
+        habitatUuid: "11111111-1111-4111-8111-111111111111",
+        displayName: "Artemis Ridge",
+        baseUrl: "https://planet.turingguild.com",
+        tokenSource: "KEPLER_PLANET_TOKEN",
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
-  test("supports local module CRUD in persisted state", () => {
+  test("hydrates starter modules and blueprints for local persistence", () => {
+    const state = hydrateModulesFromRegistration(
+      [
+        {
+          id: "starter-command-1",
+          blueprintId: "command-module",
+          displayName: "Command Module",
+          connectedTo: [],
+          runtimeAttributes: { health: 100 },
+          capabilities: ["habitat-command"],
+        },
+      ],
+      [
+        {
+          id: "blueprint-command-module",
+          blueprintId: "command-module",
+          displayName: "Command Module Blueprint",
+          description: "Primary command center.",
+          status: "published",
+          output: {},
+          inputs: {},
+          buildTicks: 120,
+          repeatable: false,
+        },
+      ],
+    );
+
+    expect(state.modules).toHaveLength(1);
+    expect(state.modules[0]?.id).toBe("starter-command-1");
+    expect(state.blueprints).toHaveLength(1);
+    expect(state.blueprints[0]?.blueprintId).toBe("command-module");
+  });
+
+  test("removes local persisted habitat files", () => {
     const cwd = makeTempDir();
+
     try {
-      writeModuleState({ catalogVersion: "2026-06-24", modules: [] }, cwd);
-      const created = createModule({ blueprintId: "alpha", displayName: "Alpha", runtimeAttributes: {}, capabilities: ["scan"] }, cwd);
-      expect(getModule(created.id, cwd)).toEqual(created);
+      writeRegistration(
+        {
+          habitatId: "habitat-123",
+          habitatUuid: "11111111-1111-4111-8111-111111111111",
+          displayName: "Artemis Ridge",
+          baseUrl: "https://planet.turingguild.com",
+          tokenSource: "KEPLER_PLANET_TOKEN",
+        },
+        cwd,
+      );
 
-      const updated = updateModule(created.id, { displayName: "Alpha Prime", status: "maintenance", condition: 87 }, cwd);
-      expect(updated?.displayName).toBe("Alpha Prime");
-      expect(updated?.status).toBe("maintenance");
-      expect(updated?.condition).toBe(87);
+      removeRegistration(cwd);
+      removeModuleState(cwd);
 
-      expect(deleteModule(created.id, cwd)).toBe(true);
-      expect(readModuleState(cwd)?.modules).toHaveLength(0);
+      expect(readRegistration(cwd)).toBeNull();
+      expect(readModuleState(cwd)).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

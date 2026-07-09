@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 export type KeplerConfig = {
   baseUrl: string;
   token: string;
+  tokenSource: string;
 };
 
 const ENV_PATHS = [".env/.env", ".env"];
@@ -33,6 +34,7 @@ export function loadKeplerConfig(cwd = process.cwd()): KeplerConfig {
 
   const baseUrl = process.env.KEPLER_BASE_URL ?? fileConfig.KEPLER_BASE_URL;
   const token = process.env.KEPLER_PLANET_TOKEN ?? fileConfig.KEPLER_PLANET_TOKEN;
+  const tokenSource = process.env.KEPLER_PLANET_TOKEN ? "KEPLER_PLANET_TOKEN" : "file:.env";
 
   if (!baseUrl) {
     throw new Error("Missing KEPLER_BASE_URL in .env.");
@@ -42,5 +44,5 @@ export function loadKeplerConfig(cwd = process.cwd()): KeplerConfig {
     throw new Error("Missing KEPLER_PLANET_TOKEN in .env.");
   }
 
-  return { baseUrl, token };
+  return { baseUrl, token, tokenSource };
 }

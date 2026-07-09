@@ -1,28 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
-import type { KeplerStarterModule } from "./kepler";
+import type { KeplerBlueprint, KeplerStarterModule } from "./kepler";
 
 export type HabitatRegistration = {
   habitatId: string;
+  habitatUuid: string;
   displayName: string;
-  catalogVersion: string;
+  baseUrl: string;
+  tokenSource: string;
 };
 
-export type HabitatModule = {
-  id: string;
-  blueprintId: string;
-  displayName: string;
-  status?: string;
-  condition?: number;
-  runtimeAttributes: Record<string, unknown>;
-  capabilities: string[];
-};
-
-type RegistrationState = HabitatRegistration;
-type ModuleState = {
-  catalogVersion: string;
-  modules: HabitatModule[];
+export type HabitatModuleState = {
+  modules: KeplerStarterModule[];
+  blueprints: KeplerBlueprint[];
 };
 
 const REGISTRATION_PATH = ".habitat/registration.json";
@@ -51,7 +41,7 @@ function modulesPath(cwd = process.cwd()): string {
 }
 
 export function readRegistration(cwd = process.cwd()): HabitatRegistration | null {
-  return readJson<RegistrationState>(registrationPath(cwd));
+  return readJson<HabitatRegistration>(registrationPath(cwd));
 }
 
 export function writeRegistration(registration: HabitatRegistration, cwd = process.cwd()): void {
@@ -62,11 +52,11 @@ export function removeRegistration(cwd = process.cwd()): void {
   removeJson(registrationPath(cwd));
 }
 
-export function readModuleState(cwd = process.cwd()): ModuleState | null {
-  return readJson<ModuleState>(modulesPath(cwd));
+export function readModuleState(cwd = process.cwd()): HabitatModuleState | null {
+  return readJson<HabitatModuleState>(modulesPath(cwd));
 }
 
-export function writeModuleState(state: ModuleState, cwd = process.cwd()): void {
+export function writeModuleState(state: HabitatModuleState, cwd = process.cwd()): void {
   writeJson(modulesPath(cwd), state);
 }
 
@@ -74,61 +64,12 @@ export function removeModuleState(cwd = process.cwd()): void {
   removeJson(modulesPath(cwd));
 }
 
-export function hydrateModulesFromStarterModules(
-  catalogVersion: string,
+export function hydrateModulesFromRegistration(
   starterModules: KeplerStarterModule[],
-): ModuleState {
+  blueprints: KeplerBlueprint[],
+): HabitatModuleState {
   return {
-    catalogVersion,
-    modules: starterModules.map((module, index) => ({
-      id: `${module.blueprintId}-${index + 1}`,
-      blueprintId: module.blueprintId,
-      displayName: module.displayName,
-      status: "active",
-      condition: 100,
-      runtimeAttributes: module.runtimeAttributes,
-      capabilities: module.capabilities,
-    })),
+    modules: starterModules,
+    blueprints,
   };
-}
-
-export function createModule(
-  input: Omit<HabitatModule, "id"> & Partial<Pick<HabitatModule, "id">>,
-  cwd: string = process.cwd(),
-): HabitatModule {
-  const state = readModuleState(cwd) ?? { catalogVersion: "unknown", modules: [] };
-  const id = input.id ?? `module-${randomUUID()}`;
-  const moduleRecord: HabitatModule = { ...input, id };
-  writeModuleState({ ...state, modules: [...state.modules, moduleRecord] }, cwd);
-  return moduleRecord;
-}
-
-export function updateModule(
-  id: string,
-  patch: Partial<Omit<HabitatModule, "id">>,
-  cwd: string = process.cwd(),
-): HabitatModule | null {
-  const state = readModuleState(cwd);
-  if (!state) return null;
-  const index = state.modules.findIndex((module) => module.id === id);
-  if (index < 0) return null;
-  const updated = { ...state.modules[index], ...patch, id };
-  const modules = [...state.modules];
-  modules[index] = updated;
-  writeModuleState({ ...state, modules }, cwd);
-  return updated;
-}
-
-export function deleteModule(id: string, cwd: string = process.cwd()): boolean {
-  const state = readModuleState(cwd);
-  if (!state) return false;
-  const modules = state.modules.filter((module) => module.id !== id);
-  if (modules.length === state.modules.length) return false;
-  writeModuleState({ ...state, modules }, cwd);
-  return true;
-}
-
-export function getModule(id: string, cwd: string = process.cwd()): HabitatModule | null {
-  const state = readModuleState(cwd);
-  return state?.modules.find((module) => module.id === id) ?? null;
 }
