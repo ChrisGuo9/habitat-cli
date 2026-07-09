@@ -140,6 +140,368 @@ afterAll(() => {
 });
 
 describe("habitat cli", () => {
+  test("module set-status updates only runtimeAttributes.status and reports power draw in that state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(
+        await runCli(
+          [
+            "module",
+            "update",
+            "battery-1",
+            "--runtime-attribute",
+            "health=100",
+            "--runtime-attribute",
+            "status=offline",
+            "--runtime-attribute",
+            "currentEnergyKwh=10",
+            "--runtime-attribute",
+            "energyStorageKwh=20",
+            "--runtime-attribute",
+            "powerDrawKw=0.5",
+          ],
+          cwd,
+          {
+            KEPLER_BASE_URL: baseUrl,
+            KEPLER_PLANET_TOKEN: "test-token",
+          },
+        ),
+      ).toMatchObject({ exitCode: 0 });
+
+      const before = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const beforeBattery = before.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1");
+      expect(beforeBattery?.runtimeAttributes).toMatchObject({
+        health: 100,
+        status: "offline",
+        currentEnergyKwh: 10,
+        energyStorageKwh: 20,
+        powerDrawKw: 0.5,
+      });
+
+      const result = await runCli(["module", "set-status", "battery-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("moduleId=battery-1");
+      expect(result.stdout).toContain("status=online");
+      expect(result.stdout).toContain("powerDrawKw=0.5");
+
+      const after = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const afterBattery = after.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1");
+      expect(afterBattery?.runtimeAttributes).toEqual({
+        health: 100,
+        status: "online",
+        currentEnergyKwh: 10,
+        energyStorageKwh: 20,
+        powerDrawKw: 0.5,
+      });
+      expect(afterBattery?.displayName).toBe(beforeBattery?.displayName);
+      expect(afterBattery?.capabilities).toEqual(beforeBattery?.capabilities);
+      expect(afterBattery?.connectedTo).toEqual(beforeBattery?.connectedTo);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module set-status validates allowed states", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["module", "set-status", "battery-1", "charging"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Invalid module status: charging. Expected one of: offline, idle, online, active, damaged.");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module status prints a text table and power summary", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(
+        await runCli(
+          [
+            "module",
+            "update",
+            "life-1",
+            "--runtime-attribute",
+            "health=100",
+            "--runtime-attribute",
+            "status=active",
+            "--runtime-attribute",
+            "powerDrawKw=2.5",
+          ],
+          cwd,
+          {
+            KEPLER_BASE_URL: baseUrl,
+            KEPLER_PLANET_TOKEN: "test-token",
+          },
+        ),
+      ).toMatchObject({ exitCode: 0 });
+
+      expect(
+        await runCli(
+          [
+            "module",
+            "update",
+            "battery-1",
+            "--runtime-attribute",
+            "health=100",
+            "--runtime-attribute",
+            "status=online",
+            "--runtime-attribute",
+            "currentEnergyKwh=10",
+            "--runtime-attribute",
+            "energyStorageKwh=20",
+            "--runtime-attribute",
+            "powerDrawKw=0.5",
+          ],
+          cwd,
+          {
+            KEPLER_BASE_URL: baseUrl,
+            KEPLER_PLANET_TOKEN: "test-token",
+          },
+        ),
+      ).toMatchObject({ exitCode: 0 });
+
+      expect(
+        await runCli(
+          [
+            "module",
+            "update",
+            "cache-1",
+            "--runtime-attribute",
+            "health=100",
+            "--runtime-attribute",
+            "status=offline",
+            "--runtime-attribute",
+            "storageMassKg=6000",
+            "--runtime-attribute",
+            "powerDrawKw=1.25",
+          ],
+          cwd,
+          {
+            KEPLER_BASE_URL: baseUrl,
+            KEPLER_PLANET_TOKEN: "test-token",
+          },
+        ),
+      ).toMatchObject({ exitCode: 0 });
+
+      expect(
+        await runCli(
+          [
+            "module",
+            "create",
+            "--blueprint-id",
+            "sensor-mast",
+            "--name",
+            "Sensor Mast",
+            "--runtime-attribute",
+            "status=damaged",
+            "--runtime-attribute",
+            "powerDrawKw=3",
+          ],
+          cwd,
+          {
+            KEPLER_BASE_URL: baseUrl,
+            KEPLER_PLANET_TOKEN: "test-token",
+          },
+        ),
+      ).toMatchObject({ exitCode: 0 });
+
+      const result = await runCli(["module", "status"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("MODULE");
+      expect(result.stdout).toContain("STATE");
+      expect(result.stdout).toContain("POWER DRAW (kW)");
+      expect(result.stdout).toContain("Life Support");
+      expect(result.stdout).toContain("active");
+      expect(result.stdout).toContain("2.5");
+      expect(result.stdout).toContain("Basic Battery");
+      expect(result.stdout).toContain("online");
+      expect(result.stdout).toContain("0.5");
+      expect(result.stdout).toContain("Supply Cache");
+      expect(result.stdout).toContain("offline");
+      expect(result.stdout).toContain("0");
+      expect(result.stdout).toContain("Sensor Mast");
+      expect(result.stdout).toContain("damaged");
+      expect(result.stdout).toContain("totalPowerDrawKw=3");
+      expect(result.stdout).toContain("tickEnergyKwh=0.000833");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick advances the current tick and updates persisted battery energy", async () => {
+    const cwd = makeTempDir();
+    requests.length = 0;
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const updateBattery = await runCli(
+        [
+          "module",
+          "update",
+          "battery-1",
+          "--runtime-attribute",
+          "health=100",
+          "--runtime-attribute",
+          "status=offline",
+          "--runtime-attribute",
+          "currentEnergyKwh=10",
+          "--runtime-attribute",
+          "energyStorageKwh=20",
+        ],
+        cwd,
+        {
+          KEPLER_BASE_URL: baseUrl,
+          KEPLER_PLANET_TOKEN: "test-token",
+        },
+      );
+      expect(updateBattery.exitCode).toBe(0);
+
+      const createLoad = await runCli(
+        [
+          "module",
+          "create",
+          "--blueprint-id",
+          "lab-load",
+          "--name",
+          "Lab Load",
+          "--runtime-attribute",
+          "powerDrawKw=3",
+        ],
+        cwd,
+        {
+          KEPLER_BASE_URL: baseUrl,
+          KEPLER_PLANET_TOKEN: "test-token",
+        },
+      );
+      expect(createLoad.exitCode).toBe(0);
+
+      requests.length = 0;
+
+      const result = await runCli(["tick", "60"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("ticks=60");
+      expect(result.stdout).toContain("currentTick=60");
+      expect(result.stdout).toContain("consumedKwh=0.05");
+      expect(result.stdout).toContain("storedEnergyKwh=9.95");
+      expect(requests).toEqual([]);
+
+      const simulation = JSON.parse(readFileSync(join(cwd, ".habitat", "simulation.json"), "utf8"));
+      expect(simulation).toEqual({ currentTick: 60 });
+
+      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      expect(modules.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1")?.runtimeAttributes)
+        .toMatchObject({
+          currentEnergyKwh: 9.95,
+          energyStorageKwh: 20,
+        });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick creates default simulation state and persists across invocations", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const first = await runCli(["tick", "1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(first.exitCode).toBe(0);
+      expect(first.stdout).toContain("currentTick=1");
+
+      const second = await runCli(["tick", "2"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(second.exitCode).toBe(0);
+      expect(second.stdout).toContain("currentTick=3");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick rejects an invalid tick count", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["tick", "0"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Tick count must be a positive integer.");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick fails when no local habitat registration exists", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const result = await runCli(["tick", "1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("prints help for the Kepler-only commands", async () => {
     const cwd = makeTempDir();
     try {

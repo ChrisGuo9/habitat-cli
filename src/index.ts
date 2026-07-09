@@ -5,18 +5,32 @@ import { randomUUID } from "node:crypto";
 import { loadKeplerConfig } from "./config";
 import { getHabitatRegistration, registerHabitat } from "./kepler";
 import {
+  buildModuleStatusRows,
+  formatModuleStatusTable,
+  formatPowerDrawKw,
+  invalidStatusMessage,
+  isDisplayState,
+  resolvePowerDrawKw,
+  summarizeModuleStatus,
+} from "./module-status";
+import { runSimulationTicks } from "./simulation";
+import {
   createModule,
   deleteModule,
   getModuleReference,
   hydrateModulesFromRegistration,
   listModuleReferences,
+  readOrCreateSimulationState,
   readRegistration,
   readModuleState,
   removeModuleState,
   removeRegistration,
+  removeSimulationState,
   updateModule,
+  updateModuleStatus,
   writeModuleState,
   writeRegistration,
+  writeSimulationState,
 } from "./state";
 
 const program = new Command();
@@ -97,8 +111,45 @@ program
 
       removeRegistration();
       removeModuleState();
+      removeSimulationState();
 
       console.log(`Removed local habitat registration for ${registration.displayName}`);
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+program
+  .command("tick")
+  .description("advance the local habitat simulation by one-second ticks")
+  .argument("<count>", "number of ticks to run")
+  .action(async (count: string) => {
+    try {
+      const tickCount = parseTickCount(count);
+      const registration = readRegistration();
+      if (!registration) {
+        throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
+      }
+
+      const moduleState = readModuleState();
+      if (!moduleState) {
+        throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
+      }
+
+      const simulationState = readOrCreateSimulationState();
+      const result = runSimulationTicks({
+        moduleState,
+        simulationState,
+        tickCount,
+      });
+
+      writeModuleState(result.moduleState);
+      writeSimulationState(result.simulationState);
+
+      console.log(`ticks=${result.summary.ticks}`);
+      console.log(`currentTick=${result.simulationState.currentTick}`);
+      console.log(`consumedKwh=${result.summary.consumedKwh}`);
+      console.log(`storedEnergyKwh=${result.summary.storedEnergyKwh}`);
     } catch (error) {
       exitWithError(error);
     }
@@ -114,6 +165,44 @@ moduleCommand
       for (const { alias, module } of listModuleReferences()) {
         console.log(`${alias}\t${module.blueprintId}\t${module.displayName}`);
       }
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+moduleCommand
+  .command("status")
+  .description("show local habitat module states and current power draw")
+  .action(() => {
+    try {
+      const rows = buildModuleStatusRows(listModuleReferences());
+      const summary = summarizeModuleStatus(rows);
+      process.stdout.write(formatModuleStatusTable(rows, summary));
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+moduleCommand
+  .command("set-status")
+  .description("set one local habitat module runtime status")
+  .argument("<id>", "module id")
+  .argument("<status>", "module runtime status")
+  .action((id: string, status: string) => {
+    try {
+      if (!isDisplayState(status)) {
+        throw new Error(invalidStatusMessage(status));
+      }
+
+      const module = updateModuleStatus(id, status);
+      if (!module) {
+        throw new Error(`Local module not found: ${id}`);
+      }
+
+      const powerDrawKw = resolvePowerDrawKw(module.runtimeAttributes.status, module.runtimeAttributes.powerDrawKw);
+      console.log(`moduleId=${id}`);
+      console.log(`status=${status}`);
+      console.log(`powerDrawKw=${formatPowerDrawKw(powerDrawKw)}`);
     } catch (error) {
       exitWithError(error);
     }
@@ -273,6 +362,19 @@ function parseRuntimeValue(value: string): unknown {
   }
 
   return value;
+}
+
+function parseTickCount(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error("Tick count must be a positive integer.");
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("Tick count must be a positive integer.");
+  }
+
+  return parsed;
 }
 
 function printModule(

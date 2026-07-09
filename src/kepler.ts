@@ -51,6 +51,13 @@ export type KeplerHabitatResponse = {
   habitat: KeplerHabitat;
 };
 
+export type SolarIrradianceResponse = {
+  solarIrradiance: {
+    wPerM2: number;
+    condition: string;
+  };
+};
+
 async function keplerRequest<T>(config: KeplerConfig, path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${config.baseUrl}${path}`, {
     ...init,
@@ -86,4 +93,8 @@ export function getHabitatRegistration(config: KeplerConfig, habitatId: string) 
     `/habitats/${encodeURIComponent(habitatId)}/registration`,
     { method: "GET" },
   );
+}
+
+export function getSolarIrradiance(config: KeplerConfig) {
+  return keplerRequest<SolarIrradianceResponse>(config, "/world/solar-irradiance", { method: "GET" });
 }

@@ -16,6 +16,10 @@ export type HabitatModuleState = {
   blueprints: KeplerBlueprint[];
 };
 
+export type HabitatSimulationState = {
+  currentTick: number;
+};
+
 export type LocalModuleInput = {
   blueprintId: string;
   displayName: string;
@@ -39,6 +43,7 @@ export type ModuleReference = {
 
 const REGISTRATION_PATH = ".habitat/registration.json";
 const MODULES_PATH = ".habitat/modules.json";
+const SIMULATION_PATH = ".habitat/simulation.json";
 
 function readJson<T>(filePath: string): T | null {
   if (!existsSync(filePath)) return null;
@@ -60,6 +65,10 @@ function registrationPath(cwd = process.cwd()): string {
 
 function modulesPath(cwd = process.cwd()): string {
   return resolve(cwd, MODULES_PATH);
+}
+
+function simulationPath(cwd = process.cwd()): string {
+  return resolve(cwd, SIMULATION_PATH);
 }
 
 export function readRegistration(cwd = process.cwd()): HabitatRegistration | null {
@@ -84,6 +93,29 @@ export function writeModuleState(state: HabitatModuleState, cwd = process.cwd())
 
 export function removeModuleState(cwd = process.cwd()): void {
   removeJson(modulesPath(cwd));
+}
+
+export function readSimulationState(cwd = process.cwd()): HabitatSimulationState | null {
+  return readJson<HabitatSimulationState>(simulationPath(cwd));
+}
+
+export function writeSimulationState(state: HabitatSimulationState, cwd = process.cwd()): void {
+  writeJson(simulationPath(cwd), state);
+}
+
+export function removeSimulationState(cwd = process.cwd()): void {
+  removeJson(simulationPath(cwd));
+}
+
+export function readOrCreateSimulationState(cwd = process.cwd()): HabitatSimulationState {
+  const existing = readSimulationState(cwd);
+  if (existing) {
+    return existing;
+  }
+
+  const initialState = { currentTick: 0 };
+  writeSimulationState(initialState, cwd);
+  return initialState;
 }
 
 export function hydrateModulesFromRegistration(
@@ -172,6 +204,33 @@ export function updateModule(id: string, updates: LocalModuleUpdate, cwd = proce
     connectedTo: updates.connectedTo ?? current.connectedTo,
     runtimeAttributes: updates.runtimeAttributes ?? current.runtimeAttributes,
     capabilities: updates.capabilities ?? current.capabilities,
+  };
+
+  const modules = [...state.modules];
+  modules[index] = updated;
+  writeModuleState({ ...state, modules }, cwd);
+  return updated;
+}
+
+export function updateModuleStatus(id: string, status: string, cwd = process.cwd()): KeplerStarterModule | null {
+  const state = requireModuleState(cwd);
+  const target = findModuleReference(id, cwd);
+  if (!target) {
+    return null;
+  }
+
+  const index = state.modules.findIndex((module) => module.id === target.module.id);
+  if (index === -1) {
+    return null;
+  }
+
+  const current = state.modules[index]!;
+  const updated: KeplerStarterModule = {
+    ...current,
+    runtimeAttributes: {
+      ...current.runtimeAttributes,
+      status,
+    },
   };
 
   const modules = [...state.modules];
