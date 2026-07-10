@@ -1,0 +1,5 @@
+A resource catalog entry describes a type of resource in the Kepler world, a local inventory is the actual resources owned in my habitat, a blueprint is an official design for something that can be built, and a module is an actual local Habitat object created from or connected to that blueprint.
+
+Inventory should be added in a later lab as separate local state that tracks which resources and how much of each resource is there.
+
+I split src/index.ts because the file was 500 lines long, and I found that it was not necessary to have that many lines in only one file.

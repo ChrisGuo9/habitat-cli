@@ -3,7 +3,10 @@
 import { Command } from "commander";
 import { randomUUID } from "node:crypto";
 import { loadKeplerConfig } from "./config";
-import { getHabitatRegistration, registerHabitat } from "./kepler";
+import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
+import { registerInventoryCommands } from "./commands/construction";
+import { getBlueprint, getHabitatRegistration, registerHabitat } from "./kepler";
+import { registerCatalogCommands } from "./commands/catalog";
 import {
   buildModuleStatusRows,
   formatModuleStatusTable,
@@ -20,18 +23,25 @@ import {
   getModuleReference,
   hydrateModulesFromRegistration,
   listModuleReferences,
+  readConstructionState,
+  readInventoryState,
   readOrCreateSimulationState,
   readRegistration,
   readModuleState,
+  removeConstructionState,
+  removeInventoryState,
   removeModuleState,
   removeRegistration,
   removeSimulationState,
   updateModule,
   updateModuleStatus,
+  writeConstructionState,
+  writeInventoryState,
   writeModuleState,
   writeRegistration,
   writeSimulationState,
 } from "./state";
+import type { HabitatConstructionState, HabitatInventoryState, HabitatModuleState } from "./state";
 
 const program = new Command();
 
@@ -62,11 +72,13 @@ program
 
       writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints));
 
-      console.log(`Registered habitat ${options.name}`);
-      console.log(`habitatId=${response.habitatId}`);
-      console.log(`habitatUuid=${habitatUuid}`);
-      console.log(`starterModules=${response.starterModules.length}`);
-      console.log(`blueprints=${response.blueprints.length}`);
+        printSection("Registration", [
+          ["displayName", options.name],
+          ["habitatId", response.habitatId],
+          ["habitatUuid", habitatUuid],
+          ["starterModules", String(response.starterModules.length)],
+          ["blueprints", String(response.blueprints.length)],
+      ]);
     } catch (error) {
       exitWithError(error);
     }
@@ -86,14 +98,16 @@ program
       const response = await getHabitatRegistration(config, registration.habitatId);
       const { habitat } = response;
 
-      console.log(`displayName=${registration.displayName}`);
-      console.log(`habitatId=${registration.habitatId}`);
-      console.log(`habitatUuid=${registration.habitatUuid}`);
-      console.log(`status=${habitat.status}`);
-      console.log(`catalogVersion=${habitat.catalogVersion}`);
-      console.log(`habitatSlug=${habitat.habitatSlug}`);
-      console.log(`lastSeenAt=${habitat.lastSeenAt ?? "never"}`);
-      console.log(`modules=${readModuleState()?.modules.length ?? 0}`);
+      printSection("Habitat Status", [
+        ["displayName", registration.displayName],
+        ["habitatId", registration.habitatId],
+        ["habitatUuid", registration.habitatUuid],
+        ["status", habitat.status],
+        ["catalogVersion", habitat.catalogVersion],
+        ["habitatSlug", habitat.habitatSlug],
+        ["lastSeenAt", habitat.lastSeenAt ?? "never"],
+        ["modules", String(readModuleState()?.modules.length ?? 0)],
+      ]);
     } catch (error) {
       exitWithError(error);
     }
@@ -112,6 +126,8 @@ program
       removeRegistration();
       removeModuleState();
       removeSimulationState();
+      removeInventoryState();
+      removeConstructionState();
 
       console.log(`Removed local habitat registration for ${registration.displayName}`);
     } catch (error) {
@@ -137,34 +153,157 @@ program
       }
 
       const simulationState = readOrCreateSimulationState();
+      const constructionState = readConstructionState();
       const result = runSimulationTicks({
         moduleState,
         simulationState,
         tickCount,
+        constructionState,
       });
 
-      writeModuleState(result.moduleState);
-      writeSimulationState(result.simulationState);
+      commitSimulationTick(result, moduleState, simulationState, constructionState);
 
-      console.log(`ticks=${result.summary.ticks}`);
-      console.log(`currentTick=${result.simulationState.currentTick}`);
-      console.log(`consumedKwh=${result.summary.consumedKwh}`);
-      console.log(`storedEnergyKwh=${result.summary.storedEnergyKwh}`);
+      printSection("Tick", [
+        ["requestedTicks", String(result.summary.requestedTicks)],
+        ["completedTicks", String(result.summary.completedTicks)],
+        ["blockedTicks", String(result.summary.blockedTicks)],
+        ["powerBlockedTicks", String(result.summary.powerBlockedTicks)],
+        ["currentTick", String(result.simulationState.currentTick)],
+        ["consumedKwh", String(result.summary.consumedKwh)],
+        ["storedEnergyKwh", String(result.summary.storedEnergyKwh)],
+        ["powerAvailability", result.summary.storedEnergyKwh > 0 ? "available" : "unavailable"],
+        [
+          "powerExplanation",
+          result.summary.storedEnergyKwh > 0
+            ? "Battery energy is available for powered work."
+            : "No usable battery energy is available; powered work is blocked.",
+        ],
+        ["constructionCompleted", String(result.summary.constructionCompleted)],
+        [
+          "constructionProgress",
+          result.constructionState.activeJob
+            ? formatProgress(result.constructionState.activeJob.totalBuildTicks, result.constructionState.activeJob.remainingBuildTicks)
+            : result.summary.constructionCompleted
+              ? "100% (completed)"
+              : "no active construction",
+        ],
+      ]);
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+program
+  .command("construct")
+  .description("construct a local habitat module from a blueprint")
+  .argument("<blueprint-id>", "blueprint id")
+  .option("--dry-run", "show whether construction can start without changing state")
+  .action(async (blueprintId: string, options: { dryRun?: boolean }) => {
+    try {
+      const registration = readRegistration();
+      if (!registration) {
+        throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
+      }
+
+      const config = loadKeplerConfig();
+      const blueprint = await getBlueprint(config, blueprintId);
+      const moduleState = readModuleState();
+      if (!moduleState) {
+        throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
+      }
+
+      const inventory = readInventoryState() ?? { resources: {} };
+      if (options.dryRun) {
+        const report = runConstructionDryRun(blueprint, moduleState.modules, inventory);
+        printConstructionDryRun(report);
+        return;
+      }
+
+      const started = startConstruction(blueprint, moduleState, inventory, readConstructionState());
+      commitConstructionStart(started);
+      printConstructionStart(started);
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+const constructionCommand = program.command("construction").description("inspect local construction jobs");
+
+constructionCommand
+  .command("status")
+  .description("show active construction jobs")
+  .action(() => {
+    try {
+      const construction = readConstructionState();
+      const jobs = construction?.activeJob ? [construction.activeJob] : [];
+
+      if (jobs.length === 0) {
+        console.log("No active construction jobs.");
+        return;
+      }
+
+      jobs.forEach((job, index) => {
+        const facility = readModuleState()?.modules.find((module) => module.id === job.facilityModuleId);
+        const facilityBusy = Boolean(facility?.runtimeAttributes.busy || facility?.runtimeAttributes.activeJobId);
+        printSection(`Construction Job ${index + 1}`, [
+          ["blueprintId", job.blueprintId],
+          ["outputModuleId", job.futureModuleId],
+          ["facilityModuleId", job.facilityModuleId],
+          ["facilityDeclaredState", String(facility?.runtimeAttributes.status ?? "unknown")],
+          ["facilityEffectiveState", facility ? effectiveModuleState(facility) : "missing"],
+          ["facilityAvailable", String(!facilityBusy)],
+          ["totalBuildTicks", String(job.totalBuildTicks)],
+          ["remainingBuildTicks", String(job.remainingBuildTicks)],
+          ["progress", formatProgress(job.totalBuildTicks, job.remainingBuildTicks)],
+          ["state", "active"],
+        ]);
+      });
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
+constructionCommand
+  .command("cancel")
+  .description("cancel an active construction job on a facility")
+  .argument("<facility-id>", "facility alias or local module id")
+  .action((facilityId: string) => {
+    try {
+      const moduleState = readModuleState();
+      if (!moduleState) {
+        throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
+      }
+
+      const facility = getModuleReference(facilityId);
+      if (!facility) {
+        throw new Error(`Local module not found: ${facilityId}`);
+      }
+
+      const result = cancelConstruction(moduleState, readConstructionState(), facility.module.id);
+      commitConstructionCancellation(result);
+      printSection("Construction Cancelled", [
+        ["facilityId", facility.module.id],
+        ["blueprintId", result.job.blueprintId],
+        ["outputModuleId", result.job.futureModuleId],
+        ["remainingBuildTicks", String(result.job.remainingBuildTicks)],
+        ["materialsRefunded", "false"],
+      ]);
+      console.warn("Warning: spent construction materials were not refunded.");
     } catch (error) {
       exitWithError(error);
     }
   });
 
 const moduleCommand = program.command("module").description("manage local habitat modules");
+registerCatalogCommands(program);
+registerInventoryCommands(program);
 
 moduleCommand
   .command("list")
   .description("list local habitat modules")
   .action(() => {
     try {
-      for (const { alias, module } of listModuleReferences()) {
-        console.log(`${alias}\t${module.blueprintId}\t${module.displayName}`);
-      }
+      printTable(["ALIAS", "BLUEPRINT", "DISPLAY NAME"], listModuleReferences().map(({ alias, module }) => [alias, module.blueprintId, module.displayName]));
     } catch (error) {
       exitWithError(error);
     }
@@ -194,15 +333,17 @@ moduleCommand
         throw new Error(invalidStatusMessage(status));
       }
 
-      const module = updateModuleStatus(id, status);
-      if (!module) {
-        throw new Error(`Local module not found: ${id}`);
-      }
+        const module = updateModuleStatus(id, status);
+        if (!module) {
+          throw new Error(`Local module not found: ${id}`);
+        }
 
-      const powerDrawKw = resolvePowerDrawKw(module.runtimeAttributes.status, module.runtimeAttributes.powerDrawKw);
-      console.log(`moduleId=${id}`);
-      console.log(`status=${status}`);
-      console.log(`powerDrawKw=${formatPowerDrawKw(powerDrawKw)}`);
+        const powerDrawKw = resolvePowerDrawKw(module.runtimeAttributes.status, module.runtimeAttributes.powerDrawKw);
+        printSection("Module Status", [
+          ["moduleId", id],
+          ["status", status],
+          ["powerDrawKw", formatPowerDrawKw(powerDrawKw)],
+        ]);
     } catch (error) {
       exitWithError(error);
     }
@@ -219,7 +360,7 @@ moduleCommand
         throw new Error(`Local module not found: ${id}`);
       }
 
-      printModule(reference.alias, reference.module);
+      printModule(reference.alias, reference.module, listModuleReferences());
     } catch (error) {
       exitWithError(error);
     }
@@ -250,9 +391,10 @@ moduleCommand
           capabilities: options.capability,
         });
 
-        console.log("Created local module");
-        console.log(`alias=${getModuleReference(module.id)?.alias ?? "unknown"}`);
-        console.log(`id=${module.id}`);
+        printSection("Created Module", [
+          ["alias", getModuleReference(module.id)?.alias ?? "unknown"],
+          ["id", module.id],
+        ]);
       } catch (error) {
         exitWithError(error);
       }
@@ -297,7 +439,7 @@ moduleCommand
           throw new Error(`Local module not found: ${id}`);
         }
 
-        console.log(`Updated local module ${id}`);
+        printSection("Updated Module", [["id", id]]);
       } catch (error) {
         exitWithError(error);
       }
@@ -314,7 +456,7 @@ moduleCommand
         throw new Error(`Local module not found: ${id}`);
       }
 
-      console.log(`Deleted local module ${id}`);
+      printSection("Deleted Module", [["id", id]]);
     } catch (error) {
       exitWithError(error);
     }
@@ -380,19 +522,298 @@ function parseTickCount(value: string): number {
 function printModule(
   alias: string,
   module: {
-  id: string;
+    id: string;
+    blueprintId: string;
+    displayName: string;
+    connectedTo: string[];
+    runtimeAttributes: Record<string, unknown>;
+    capabilities: string[];
+  },
+  references: Array<{ module: { runtimeAttributes: Record<string, unknown> } }>,
+): void {
+  const declaredState = String(module.runtimeAttributes.status ?? "idle");
+  const effectiveState = effectiveModuleState(module);
+  const storedEnergy = sumStoredEnergy(references);
+  const batteryCapacity = sumBatteryCapacity(references);
+  const rows = [
+    ["alias", alias],
+    ["id", module.id],
+    ["blueprintId", module.blueprintId],
+    ["displayName", module.displayName],
+    ["connectedTo", module.connectedTo.join(", ") || "-"],
+    ["status", declaredState],
+    ["declaredState", declaredState],
+    ["effectiveState", effectiveState],
+    ["crewCapacity", String(module.runtimeAttributes.crewCapacity ?? "-")],
+    ["powerDrawKw", formatModulePowerDraw(module.runtimeAttributes.powerDrawKw)],
+    ["powerAvailability", storedEnergy > 0 ? "available" : "unavailable"],
+    ["batteryCharge", formatEnergy(storedEnergy, batteryCapacity)],
+    ["activeJobId", String(module.runtimeAttributes.activeJobId ?? "-")],
+    ["fabricatorAvailable", String(!Boolean(module.runtimeAttributes.busy || module.runtimeAttributes.activeJobId))],
+  ] as const;
+  const keyWidth = Math.max(...rows.map(([key]) => key.length));
+
+  console.log(`${pad("FIELD", keyWidth)}  VALUE`);
+  console.log(`${"-".repeat(keyWidth)}  -----`);
+  for (const [key, value] of rows) {
+    console.log(`${pad(key, keyWidth)}  ${value}`);
+  }
+
+  printSection("Runtime Attributes", Object.entries(module.runtimeAttributes).map(([key, value]) => [key, formatValue(value)]));
+  printSection("capabilities", [["list", module.capabilities.join(", ") || "None declared"]]);
+  if (batteryCapacity > 0 && storedEnergy <= 0) {
+    console.log("Power Note");
+    console.log("----------");
+    console.log("No usable battery energy is available. Powered work cannot advance until a battery has charge.");
+  }
+}
+
+function effectiveModuleState(module: { runtimeAttributes: Record<string, unknown> }): string {
+  const declaredState = String(module.runtimeAttributes.status ?? "idle");
+  if (declaredState === "offline" || declaredState === "damaged") return declaredState;
+  if (Boolean(module.runtimeAttributes.busy || module.runtimeAttributes.activeJobId)) return "busy";
+  return declaredState;
+}
+
+function sumStoredEnergy(references: Array<{ module: { runtimeAttributes: Record<string, unknown> } }>): number {
+  return Number(
+    references
+      .reduce((sum, reference) => sum + numericValue(reference.module.runtimeAttributes.currentEnergyKwh), 0)
+      .toFixed(6),
+  );
+}
+
+function sumBatteryCapacity(references: Array<{ module: { runtimeAttributes: Record<string, unknown> } }>): number {
+  return Number(
+    references
+      .reduce((sum, reference) => sum + numericValue(reference.module.runtimeAttributes.energyStorageKwh), 0)
+      .toFixed(6),
+  );
+}
+
+function numericValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function formatEnergy(charge: number, capacity: number): string {
+  return capacity > 0 ? `${charge} / ${capacity} kWh` : "not a battery";
+}
+
+function printConstructionDryRun(report: {
   blueprintId: string;
   displayName: string;
-  connectedTo: string[];
-  runtimeAttributes: Record<string, unknown>;
-  capabilities: string[];
+  valid: boolean;
+  published: boolean;
+  buildable: boolean;
+  requiredFacilityExists: boolean;
+  facilityOnline: boolean;
+  facilityAvailable: boolean;
+  supplyCacheOnline: boolean;
+  prerequisitesMet: boolean;
+  inventorySufficient: boolean;
+  buildTicks: number;
+  moduleToCreate: { itemType?: string; moduleType?: string; quantity?: number };
+  resourcesToSpend: Record<string, number>;
+  canStart: boolean;
+  reasons: string[];
+}): void {
+  printSection("Construction Dry Run", [
+    ["blueprintId", report.blueprintId],
+    ["displayName", report.displayName],
+    ["valid", String(report.valid)],
+    ["published", String(report.published)],
+    ["buildable", String(report.buildable)],
+    ["requiredFacilityExists", String(report.requiredFacilityExists)],
+    ["facilityOnline", String(report.facilityOnline)],
+    ["facilityAvailable", String(report.facilityAvailable)],
+    ["supplyCacheOnline", String(report.supplyCacheOnline)],
+    ["prerequisitesMet", String(report.prerequisitesMet)],
+    ["inventorySufficient", String(report.inventorySufficient)],
+    ["moduleToCreate", formatValue(report.moduleToCreate)],
+    ["resourcesToSpend", formatValue(report.resourcesToSpend)],
+    ["buildTicks", String(report.buildTicks)],
+    ["canStart", String(report.canStart)],
+  ]);
+  if (report.reasons.length > 0) {
+    printList("Reasons", report.reasons);
+  }
+}
+
+function printConstructionStart(result: {
+  report: {
+    blueprintId: string;
+    displayName: string;
+    canStart: boolean;
+    buildTicks: number;
+    moduleToCreate: { itemType?: string; moduleType?: string; quantity?: number };
+    resourcesToSpend: Record<string, number>;
+  };
+  constructionState: {
+    activeJob: {
+      futureModuleId: string;
+      facilityModuleId: string;
+      totalBuildTicks: number;
+      remainingBuildTicks: number;
+    } | null;
+  };
+}): void {
+  printSection("Construction Started", [
+    ["blueprintId", result.report.blueprintId],
+    ["displayName", result.report.displayName],
+    ["canStart", String(result.report.canStart)],
+    ["buildTicks", String(result.report.buildTicks)],
+    ["moduleType", result.report.moduleToCreate.moduleType ?? "-"],
+    ["quantity", String(result.report.moduleToCreate.quantity ?? "-")],
+  ]);
+
+  printSection(
+    "Resources Spent",
+    Object.entries(result.report.resourcesToSpend).map(([resource, amount]) => [resource, String(amount)]),
+  );
+
+  const job = result.constructionState.activeJob;
+  if (job) {
+    printSection("Construction Job", [
+      ["outputModuleId", job.futureModuleId],
+      ["facilityModuleId", job.facilityModuleId],
+      ["totalBuildTicks", String(job.totalBuildTicks)],
+      ["remainingBuildTicks", String(job.remainingBuildTicks)],
+      ["state", "active"],
+    ]);
+  }
+}
+
+function commitConstructionStart(result: {
+  moduleState: HabitatModuleState;
+  inventoryState: HabitatInventoryState;
+  constructionState: HabitatConstructionState;
+}): void {
+  const previousModuleState = readModuleState();
+  const previousInventoryState = readInventoryState();
+  const previousConstruction = readConstructionState();
+  try {
+    writeModuleState(result.moduleState);
+    writeInventoryState(result.inventoryState);
+    writeConstructionState(result.constructionState);
+  } catch (error) {
+    if (previousModuleState) {
+      writeModuleState(previousModuleState);
+    }
+    if (previousInventoryState) {
+      writeInventoryState(previousInventoryState);
+    } else {
+      removeInventoryState();
+    }
+    if (previousConstruction) {
+      writeConstructionState(previousConstruction);
+    } else {
+      removeConstructionState();
+    }
+    throw error;
+  }
+}
+
+function commitConstructionCancellation(result: {
+  moduleState: HabitatModuleState;
+  constructionState: HabitatConstructionState;
+}): void {
+  const previousModuleState = readModuleState();
+  const previousConstruction = readConstructionState();
+  try {
+    writeModuleState(result.moduleState);
+    writeConstructionState(result.constructionState);
+  } catch (error) {
+    if (previousModuleState) {
+      writeModuleState(previousModuleState);
+    }
+    if (previousConstruction) {
+      writeConstructionState(previousConstruction);
+    } else {
+      removeConstructionState();
+    }
+    throw error;
+  }
+}
+
+function commitSimulationTick(
+  result: {
+    moduleState: HabitatModuleState;
+    simulationState: ReturnType<typeof readOrCreateSimulationState>;
+    constructionState: HabitatConstructionState;
   },
+  previousModuleState: HabitatModuleState,
+  previousSimulationState: ReturnType<typeof readOrCreateSimulationState>,
+  previousConstruction: HabitatConstructionState | null,
 ): void {
-  console.log(`alias=${alias}`);
-  console.log(`id=${module.id}`);
-  console.log(`blueprintId=${module.blueprintId}`);
-  console.log(`displayName=${module.displayName}`);
-  console.log(`connectedTo=${JSON.stringify(module.connectedTo)}`);
-  console.log(`runtimeAttributes=${JSON.stringify(module.runtimeAttributes)}`);
-  console.log(`capabilities=${JSON.stringify(module.capabilities)}`);
+  try {
+    writeModuleState(result.moduleState);
+    writeSimulationState(result.simulationState);
+    writeConstructionState(result.constructionState);
+  } catch (error) {
+    writeModuleState(previousModuleState);
+    writeSimulationState(previousSimulationState);
+    if (previousConstruction) {
+      writeConstructionState(previousConstruction);
+    } else {
+      removeConstructionState();
+    }
+    throw error;
+  }
+}
+
+function formatModulePowerDraw(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "-";
+
+  const entries = Object.entries(value)
+    .filter(([, amount]) => typeof amount === "number" && Number.isFinite(amount))
+    .map(([state, amount]) => `${state}:${Number(amount.toFixed(6)).toString()}`);
+
+  return entries.length > 0 ? entries.join(", ") : "-";
+}
+
+function pad(value: string, width: number): string {
+  return value.padEnd(width, " ");
+}
+
+function printSection(title: string, rows: ReadonlyArray<readonly [string, string]>): void {
+  const keyWidth = Math.max(title.length, ...rows.map(([key]) => key.length));
+  console.log(title);
+  console.log(`${"-".repeat(keyWidth)}`);
+  for (const [key, value] of rows) {
+    console.log(`${pad(key, keyWidth)}  ${value}`);
+  }
+}
+
+function printTable(headers: readonly [string, string, string], rows: Array<readonly [string, string, string]>): void {
+  const widths = headers.map((header, index) => Math.max(header.length, ...rows.map((row) => row[index].length)));
+  console.log(`${pad(headers[0], widths[0])}  ${pad(headers[1], widths[1])}  ${pad(headers[2], widths[2])}`);
+  console.log(`${"-".repeat(widths[0])}  ${"-".repeat(widths[1])}  ${"-".repeat(widths[2])}`);
+  for (const row of rows) {
+    console.log(`${pad(row[0], widths[0])}  ${pad(row[1], widths[1])}  ${pad(row[2], widths[2])}`);
+  }
+}
+
+function printList(title: string, values: string[]): void {
+  printSection(title, values.map((value, index) => [String(index + 1), value]));
+}
+
+function formatRecord(value: Record<string, unknown>): string {
+  const entries = Object.entries(value).map(([key, entry]) => `${key}=${formatValue(entry)}`);
+  return entries.length > 0 ? entries.join(", ") : "-";
+}
+
+function formatValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((entry) => formatValue(entry)).join(", ")}]`;
+  if (value && typeof value === "object") return `{${formatRecord(value as Record<string, unknown>)}}`;
+  return String(value);
+}
+
+function formatProgress(totalBuildTicks: number, remainingBuildTicks: number): string {
+  if (totalBuildTicks <= 0) {
+    return "-";
+  }
+
+  const completed = Math.max(0, totalBuildTicks - remainingBuildTicks);
+  const percent = Math.min(100, Math.max(0, (completed / totalBuildTicks) * 100));
+  return `${Number(percent.toFixed(1)).toString()}%`;
 }

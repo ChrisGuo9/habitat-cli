@@ -23,6 +23,26 @@ export type KeplerBlueprint = {
   capabilities?: string[];
 };
 
+export type KeplerBlueprintCatalogResponse = {
+  catalogVersion: string;
+  blueprints: KeplerBlueprint[];
+};
+
+export type KeplerIndustryResource = {
+  id: string;
+  resourceType: string;
+  displayName: string;
+  kind: string;
+  rarity: string;
+  description: string;
+  unit?: string;
+};
+
+export type KeplerResourceCatalogResponse = {
+  catalogVersion: string;
+  resources: KeplerIndustryResource[];
+};
+
 export type KeplerStarterModule = {
   id: string;
   blueprintId: string;
@@ -49,6 +69,10 @@ export type KeplerHabitat = {
 
 export type KeplerHabitatResponse = {
   habitat: KeplerHabitat;
+};
+
+export type KeplerBlueprintResponse = {
+  blueprint: KeplerBlueprint;
 };
 
 export type SolarIrradianceResponse = {
@@ -97,4 +121,20 @@ export function getHabitatRegistration(config: KeplerConfig, habitatId: string) 
 
 export function getSolarIrradiance(config: KeplerConfig) {
   return keplerRequest<SolarIrradianceResponse>(config, "/world/solar-irradiance", { method: "GET" });
+}
+
+export function listBlueprintCatalog(config: KeplerConfig) {
+  return keplerRequest<KeplerBlueprintCatalogResponse>(config, "/catalog/blueprints", { method: "GET" });
+}
+
+export function listResourceCatalog(config: KeplerConfig) {
+  return keplerRequest<KeplerResourceCatalogResponse>(config, "/catalog/resources", { method: "GET" });
+}
+
+export function getBlueprint(config: KeplerConfig, blueprintId: string) {
+  return keplerRequest<KeplerBlueprintResponse>(
+    config,
+    `/catalog/blueprints/${encodeURIComponent(blueprintId)}`,
+    { method: "GET" },
+  ).then((response) => response.blueprint);
 }

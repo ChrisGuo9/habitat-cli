@@ -105,6 +105,9 @@ beforeAll(() => {
                   inputs: {},
                   buildTicks: 120,
                   repeatable: false,
+                  requiredFacility: ["workshop-fabricator"],
+                  prerequisites: ["life-support"],
+                  productionCost: { iron: 4, circuit: 2 },
                   runtimeAttributes: { crewCapacity: 2 },
                   capabilities: ["habitat-command"],
                 },
@@ -112,6 +115,126 @@ beforeAll(() => {
             },
             { status: 201 },
           );
+        }
+
+        if (url.pathname === "/catalog/blueprints" && request.method === "GET") {
+          return Response.json({
+            catalogVersion: "2026-06-24",
+            blueprints: [
+              {
+                id: "blueprint-command-module",
+                blueprintId: "command-module",
+                displayName: "Command Module Blueprint",
+                description: "Primary command center.",
+                status: "published",
+                output: {},
+                inputs: {},
+                buildTicks: 120,
+                repeatable: false,
+                requiredFacility: ["workshop-fabricator"],
+                prerequisites: ["life-support"],
+                productionCost: { iron: 4, circuit: 2 },
+                runtimeAttributes: { crewCapacity: 2 },
+                capabilities: ["habitat-command"],
+              },
+              {
+                id: "blueprint-basic-battery",
+                blueprintId: "basic-battery",
+                displayName: "Basic Battery Blueprint",
+                description: "Stores electrical energy.",
+                status: "published",
+                output: {},
+                inputs: {},
+                buildTicks: 90,
+                repeatable: true,
+                runtimeAttributes: { energyStorageKwh: 20 },
+                capabilities: ["power-storage"],
+              },
+            ],
+          });
+        }
+
+        if (url.pathname === "/catalog/blueprints/command-module" && request.method === "GET") {
+          return Response.json({
+            blueprint: {
+              id: "blueprint-command-module",
+              blueprintId: "command-module",
+              displayName: "Command Module Blueprint",
+              description: "Primary command center.",
+              status: "published",
+              output: {},
+              inputs: {},
+              buildTicks: 120,
+              repeatable: false,
+              requiredFacility: ["workshop-fabricator"],
+              prerequisites: ["life-support"],
+              productionCost: { iron: 4, circuit: 2 },
+              runtimeAttributes: { crewCapacity: 2 },
+              capabilities: ["habitat-command"],
+            },
+          });
+        }
+
+        if (url.pathname === "/catalog/blueprints/small-solar-array" && request.method === "GET") {
+          return Response.json({
+            blueprint: {
+              id: "blueprint_kepler-442b-v1_small-solar-array",
+              blueprintId: "small-solar-array",
+              displayName: "Small Solar Array Blueprint",
+              description: "Generates starter solar power during clear daylight, with reduced output during dust accumulation and storm conditions.",
+              status: "published",
+              output: { itemType: "module", moduleType: "small-solar-array", quantity: 1 },
+              inputs: { ferrite: 90, "silicate-glass": 45, "conductive-ore": 18 },
+              productionCost: { power: 3 },
+              requiredFacility: { moduleType: "workshop-fabricator", minimumLevel: 1 },
+              buildTicks: 180,
+              prerequisites: [],
+              unlocks: [],
+              repeatable: true,
+              level: null,
+              target: {},
+              facilityLevel: {},
+              attachmentPoints: {},
+              attachmentRequirements: [],
+              runtimeAttributes: {
+                health: 100,
+                powerDrawKw: { offline: 0, online: 0, active: 0, damaged: 0 },
+                status: "online",
+                crewCapacity: 0,
+                powerGenerationKw: 12,
+                degradedStormGenerationKw: 3,
+                maintenanceHoursPer100Ticks: 4,
+                surfaceAreaM2: 28,
+              },
+              capabilities: ["solar-generation"],
+            },
+          });
+        }
+
+        if (url.pathname === "/catalog/resources" && request.method === "GET") {
+          return Response.json({
+            catalogVersion: "2026-06-24",
+            resources: [
+              {
+                id: "resource-iron",
+                resourceType: "iron-ore",
+                displayName: "Iron Ore",
+                kind: "mineral",
+                rarity: "common",
+                description: "Raw iron-bearing material.",
+                unit: "kg",
+              },
+              {
+                id: "resource-ice",
+                resourceType: "water-ice",
+                displayName: "Water Ice",
+                kind: "volatile",
+                rarity: "uncommon",
+                description: "Frozen water resource.",
+                unit: "kg",
+              },
+            ],
+          });
         }
 
         if (url.pathname === "/habitats/habitat_11111111_1111_4111_8111_111111111111/registration" && request.method === "GET") {
@@ -190,9 +313,13 @@ describe("habitat cli", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("moduleId=battery-1");
-      expect(result.stdout).toContain("status=online");
-      expect(result.stdout).toContain("powerDrawKw=0.5");
+      expect(result.stdout).toContain("Module Status");
+      expect(result.stdout).toContain("moduleId");
+      expect(result.stdout).toContain("battery-1");
+      expect(result.stdout).toContain("status");
+      expect(result.stdout).toContain("online");
+      expect(result.stdout).toContain("powerDrawKw");
+      expect(result.stdout).toContain("0.5");
 
       const after = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
       const afterBattery = after.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1");
@@ -418,10 +545,17 @@ describe("habitat cli", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("ticks=60");
-      expect(result.stdout).toContain("currentTick=60");
-      expect(result.stdout).toContain("consumedKwh=0.05");
-      expect(result.stdout).toContain("storedEnergyKwh=9.95");
+      expect(result.stdout).toContain("Tick");
+      expect(result.stdout).toContain("requestedTicks");
+      expect(result.stdout).toContain("completedTicks");
+      expect(result.stdout).toContain("60");
+      expect(result.stdout).toContain("currentTick");
+      expect(result.stdout).toContain("consumedKwh");
+      expect(result.stdout).toContain("0.05");
+      expect(result.stdout).toContain("storedEnergyKwh");
+      expect(result.stdout).toContain("9.95");
+      expect(result.stdout).toContain("constructionCompleted");
+      expect(result.stdout).toContain("false");
       expect(requests).toEqual([]);
 
       const simulation = JSON.parse(readFileSync(join(cwd, ".habitat", "simulation.json"), "utf8"));
@@ -452,14 +586,18 @@ describe("habitat cli", () => {
         KEPLER_PLANET_TOKEN: "test-token",
       });
       expect(first.exitCode).toBe(0);
-      expect(first.stdout).toContain("currentTick=1");
+      expect(first.stdout).toContain("Tick");
+      expect(first.stdout).toContain("requestedTicks");
+      expect(first.stdout).toContain("currentTick");
+      expect(first.stdout).toContain("1");
 
       const second = await runCli(["tick", "2"], cwd, {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "test-token",
       });
       expect(second.exitCode).toBe(0);
-      expect(second.stdout).toContain("currentTick=3");
+      expect(second.stdout).toContain("currentTick");
+      expect(second.stdout).toContain("3");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -533,7 +671,8 @@ describe("habitat cli", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Registered habitat Artemis Ridge");
+      expect(result.stdout).toContain("Registration");
+      expect(result.stdout).toContain("Artemis Ridge");
 
       expect(requests).toHaveLength(1);
       expect(requests[0]?.method).toBe("POST");
@@ -583,10 +722,14 @@ describe("habitat cli", () => {
       });
 
       expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Habitat Status");
       expect(result.stdout).toContain("Artemis Ridge");
-      expect(result.stdout).toContain("status=online");
-      expect(result.stdout).toContain("catalogVersion=2026-06-24");
-      expect(result.stdout).toContain("modules=6");
+      expect(result.stdout).toContain("status");
+      expect(result.stdout).toContain("online");
+      expect(result.stdout).toContain("catalogVersion");
+      expect(result.stdout).toContain("2026-06-24");
+      expect(result.stdout).toContain("modules");
+      expect(result.stdout).toContain("6");
       expect(requests).toEqual([
         {
           method: "GET",
@@ -624,6 +767,601 @@ describe("habitat cli", () => {
     }
   });
 
+  test("blueprint list shows the official blueprint catalog", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["blueprint", "list"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("command-module");
+      expect(result.stdout).toContain("Command Module Blueprint");
+      expect(result.stdout).toContain("published");
+      expect(result.stdout).not.toContain("starter-command-1");
+      expect(requests).toContainEqual({
+        method: "GET",
+        pathname: "/catalog/blueprints",
+        body: null,
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resource list shows Kepler resource types without creating local inventory", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const result = await runCli(["resource", "list"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Resource Catalog");
+      expect(result.stdout).toContain("catalogVersion");
+      expect(result.stdout).toContain("iron-ore");
+      expect(result.stdout).toContain("Iron Ore");
+      expect(result.stdout).toContain("water-ice");
+      expect(result.stdout).toContain("Water Ice");
+      expect(result.stdout).not.toContain("inventory=");
+      expect(existsSync(join(cwd, ".habitat"))).toBe(false);
+      expect(requests).toContainEqual({
+        method: "GET",
+        pathname: "/catalog/resources",
+        body: null,
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("blueprint show reports a friendly error when the blueprint is missing", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const result = await runCli(["blueprint", "show", "missing-blueprint"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Blueprint not found: missing-blueprint");
+      expect(requests).toContainEqual({
+        method: "GET",
+        pathname: "/catalog/blueprints/missing-blueprint",
+        body: null,
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("blueprint show prints one blueprint by id", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["blueprint", "show", "command-module"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Blueprint");
+      expect(result.stdout).toContain("command-module");
+      expect(result.stdout).toContain("Command Module Blueprint");
+      expect(result.stdout).toContain("buildTicks");
+      expect(result.stdout).toContain("120");
+      expect(result.stdout).toContain("capabilities");
+      expect(result.stdout).toContain("habitat-command");
+      expect(requests).toContainEqual({
+        method: "GET",
+        pathname: "/catalog/blueprints/command-module",
+        body: null,
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("blueprint check reports readiness when construction requirements are met", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "fab-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["blueprint", "check", "small-solar-array"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Blueprint Readiness");
+      expect(result.stdout).toContain("small-solar-array");
+      expect(result.stdout).toContain("published");
+      expect(result.stdout).toContain("true");
+      expect(result.stdout).toContain("requiredFacility");
+      expect(result.stdout).toContain("workshop-fabricator");
+      expect(result.stdout).toContain("requiredMaterials");
+      expect(result.stdout).toContain("ferrite=90");
+      expect(result.stdout).toContain("usablePower");
+      expect(result.stdout).not.toContain("Issues");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("blueprint check reports missing readiness requirements", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["blueprint", "check", "small-solar-array"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).toContain("false");
+      expect(result.stdout).toContain("Issues");
+      expect(result.stdout).toContain("A supply cache or logistics module must be online.");
+      expect(result.stdout).toContain("Insufficient local inventory");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("blueprint check reports a busy construction facility", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["module", "update", "fab-1", "--runtime-attribute", "activeJobId=job-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "iron", "4"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "circuit", "2"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["blueprint", "check", "command-module"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).toContain("false");
+      expect(result.stdout).toContain("Required construction facility must be online and available.");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construct dry-run for small-solar-array reports readiness without changing local state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const beforeModules = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
+      const beforeInventory = readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8");
+
+      const result = await runCli(["construct", "small-solar-array", "--dry-run"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const afterModules = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
+      const afterInventory = readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Construction Dry Run");
+      expect(result.stdout).toContain("small-solar-array");
+      expect(result.stdout).toContain("valid");
+      expect(result.stdout).toContain("true");
+      expect(result.stdout).toContain("moduleToCreate");
+      expect(result.stdout).toContain("small-solar-array");
+      expect(result.stdout).toContain("resourcesToSpend");
+      expect(result.stdout).toContain("ferrite=90");
+      expect(result.stdout).toContain("buildTicks");
+      expect(result.stdout).toContain("180");
+      expect(result.stdout).toContain("canStart");
+      expect(afterModules).toBe(beforeModules);
+      expect(afterInventory).toBe(beforeInventory);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construct small-solar-array starts construction and records the job without creating the final module", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const beforeModules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const beforeInventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
+
+      const result = await runCli(["construct", "small-solar-array"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Construction Started");
+      expect(result.stdout).toContain("small-solar-array");
+      expect(result.stdout).toContain("canStart");
+      expect(result.stdout).toContain("true");
+      expect(result.stdout).toContain("Construction Job");
+      expect(result.stdout).toContain("outputModuleId");
+      expect(result.stdout).toContain("small-solar-array-1");
+      expect(result.stdout).toContain("Resources Spent");
+      expect(result.stdout).toContain("ferrite");
+
+      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const inventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
+      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+
+      expect(modules).not.toEqual(beforeModules);
+      expect(inventory).not.toEqual(beforeInventory);
+      expect(inventory.resources).toEqual({
+        ferrite: 0,
+        "silicate-glass": 0,
+        "conductive-ore": 0,
+      });
+      expect(modules.modules.find((module: { id: string }) => module.id === "starter-workshop-fabricator-1")?.runtimeAttributes).toMatchObject({
+        status: "active",
+        activeJobId: "small-solar-array-1",
+        busy: true,
+      });
+      expect(modules.modules.find((module: { id: string }) => module.id === "small-solar-array-1")).toBeUndefined();
+      expect(construction.activeJob).toMatchObject({
+        blueprintId: "small-solar-array",
+        futureModuleId: "small-solar-array-1",
+        futureModuleType: "small-solar-array",
+        totalBuildTicks: 180,
+        remainingBuildTicks: 180,
+        facilityModuleId: "starter-workshop-fabricator-1",
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construction status reports an active job", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["construct", "small-solar-array"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["construction", "status"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Construction Job 1");
+      expect(result.stdout).toContain("blueprintId");
+      expect(result.stdout).toContain("small-solar-array");
+      expect(result.stdout).toContain("outputModuleId");
+      expect(result.stdout).toContain("small-solar-array-1");
+      expect(result.stdout).toContain("facilityModuleId");
+      expect(result.stdout).toContain("starter-workshop-fabricator-1");
+      expect(result.stdout).toContain("totalBuildTicks");
+      expect(result.stdout).toContain("180");
+      expect(result.stdout).toContain("progress");
+      expect(result.stdout).toContain("0%");
+      expect(result.stdout).toContain("state");
+      expect(result.stdout).toContain("active");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construction cancel clears the job and makes the fabricator available without refunding materials", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await runCli(["construct", "small-solar-array"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+
+      const result = await runCli(["construction", "cancel", "fab-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Construction Cancelled");
+      expect(result.stdout).toContain("materialsRefunded");
+      expect(result.stdout).toContain("false");
+      expect(result.stderr).toContain("spent construction materials were not refunded");
+
+      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const inventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
+      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+      const facility = modules.modules.find((module: { id: string }) => module.id === "starter-workshop-fabricator-1");
+
+      expect(facility.runtimeAttributes).toMatchObject({ busy: false });
+      expect(facility.runtimeAttributes.activeJobId).toBeUndefined();
+      expect(inventory.resources).toEqual({ ferrite: 0, "silicate-glass": 0, "conductive-ore": 0 });
+      expect(construction).toEqual({ activeJob: null });
+      expect(modules.modules.find((module: { id: string }) => module.id === "small-solar-array-1")).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construction cancel rejects a facility without an active job", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      const before = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
+      const result = await runCli(["construction", "cancel", "fab-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("No active construction job found");
+      expect(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8")).toBe(before);
+      expect(existsSync(join(cwd, ".habitat", "construction.json"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("construction status reports a friendly empty state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["construction", "status"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("No active construction jobs.");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick completes construction and creates the output module when the job reaches zero", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["module", "set-status", "cache-1", "online"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["construct", "small-solar-array"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["tick", "180"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("constructionCompleted");
+      expect(result.stdout).toContain("true");
+
+      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      expect(modules.modules.find((module: { id: string }) => module.id === "small-solar-array-1")).toMatchObject({
+        id: "small-solar-array-1",
+        blueprintId: "small-solar-array",
+        displayName: "Small Solar Array",
+        runtimeAttributes: expect.objectContaining({
+          health: 100,
+          status: "online",
+          powerDrawKw: {
+            offline: 0,
+            online: 0,
+            active: 0,
+            damaged: 0,
+          },
+          powerGenerationKw: 12,
+        }),
+        capabilities: ["solar-generation"],
+      });
+
+      expect(modules.modules.find((module: { id: string }) => module.id === "starter-workshop-fabricator-1")?.runtimeAttributes).toMatchObject({
+        status: "online",
+        busy: false,
+      });
+
+      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+      expect(construction).toEqual({ activeJob: null });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("inventory list renders a table", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["inventory", "set", "ferrite", "90"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "silicate-glass", "45"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      await runCli(["inventory", "set", "conductive-ore", "18"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      const result = await runCli(["inventory", "list"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("RESOURCE");
+      expect(result.stdout).toContain("AMOUNT");
+      expect(result.stdout).toContain("ferrite");
+      expect(result.stdout).toContain("silicate-glass");
+      expect(result.stdout).toContain("conductive-ore");
+      expect(result.stdout).toContain("----------");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("module show accepts a short alias and prints the full module details", async () => {
     const cwd = makeTempDir();
 
@@ -639,10 +1377,15 @@ describe("habitat cli", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("alias=cmd-1");
-      expect(result.stdout).toContain("id=starter-command-1");
-      expect(result.stdout).toContain("blueprintId=command-module");
-      expect(result.stdout).toContain('capabilities=["habitat-command"]');
+      expect(result.stdout).toContain("FIELD");
+      expect(result.stdout).toContain("alias");
+      expect(result.stdout).toContain("cmd-1");
+      expect(result.stdout).toContain("id");
+      expect(result.stdout).toContain("starter-command-1");
+      expect(result.stdout).toContain("blueprintId");
+      expect(result.stdout).toContain("command-module");
+      expect(result.stdout).toContain("capabilities");
+      expect(result.stdout).toContain("habitat-command");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -682,13 +1425,13 @@ describe("habitat cli", () => {
       );
 
       expect(createResult.exitCode).toBe(0);
-      expect(createResult.stdout).toContain("Created local module");
-      expect(createResult.stdout).toContain("alias=sensor-1");
+      expect(createResult.stdout).toContain("Created Module");
+      expect(createResult.stdout).toContain("alias");
+      expect(createResult.stdout).toContain("sensor-1");
       const createdIdLine = createResult.stdout
         .split("\n")
-        .find((line) => line.startsWith("id="));
-      const createdId = createdIdLine?.replace("id=", "").trim() ?? "";
-      expect(createdId).toMatch(/^module_/);
+        .find((line) => line.includes("module_"));
+      expect(createdIdLine ?? "").toMatch(/module_/);
 
       const updateResult = await runCli(
         [
@@ -714,7 +1457,8 @@ describe("habitat cli", () => {
       );
 
       expect(updateResult.exitCode).toBe(0);
-      expect(updateResult.stdout).toContain("Updated local module sensor-1");
+      expect(updateResult.stdout).toContain("Updated Module");
+      expect(updateResult.stdout).toContain("sensor-1");
 
       const showResult = await runCli(["module", "show", "sensor-1"], cwd, {
         KEPLER_BASE_URL: baseUrl,
@@ -722,10 +1466,14 @@ describe("habitat cli", () => {
       });
 
       expect(showResult.exitCode).toBe(0);
-      expect(showResult.stdout).toContain("alias=sensor-1");
-      expect(showResult.stdout).toContain("displayName=Sensor Mast Mk II");
-      expect(showResult.stdout).toContain('capabilities=["environment-sensing","long-range-scan"]');
-      expect(showResult.stdout).toContain('runtimeAttributes={"health":85,"status":"damaged"}');
+      expect(showResult.stdout).toContain("FIELD");
+      expect(showResult.stdout).toContain("alias");
+      expect(showResult.stdout).toContain("sensor-1");
+      expect(showResult.stdout).toContain("displayName");
+      expect(showResult.stdout).toContain("Sensor Mast Mk II");
+      expect(showResult.stdout).toContain("capabilities");
+      expect(showResult.stdout).toContain("environment-sensing, long-range-scan");
+      expect(showResult.stdout).toContain("declaredState        damaged");
 
       const deleteResult = await runCli(["module", "delete", "sensor-1"], cwd, {
         KEPLER_BASE_URL: baseUrl,
@@ -733,7 +1481,8 @@ describe("habitat cli", () => {
       });
 
       expect(deleteResult.exitCode).toBe(0);
-      expect(deleteResult.stdout).toContain("Deleted local module sensor-1");
+      expect(deleteResult.stdout).toContain("Deleted Module");
+      expect(deleteResult.stdout).toContain("sensor-1");
 
       const listResult = await runCli(["module", "list"], cwd, {
         KEPLER_BASE_URL: baseUrl,

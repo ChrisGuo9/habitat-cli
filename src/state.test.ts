@@ -10,9 +10,15 @@ import {
   listModules,
   readModuleState,
   readRegistration,
+  readConstructionState,
   removeModuleState,
+  readInventoryState,
   removeRegistration,
+  removeInventoryState,
+  removeConstructionState,
   updateModule,
+  writeInventoryState,
+  writeConstructionState,
   writeModuleState,
   writeRegistration,
 } from "./state";
@@ -181,6 +187,78 @@ describe("habitat state", () => {
 
       expect(readRegistration(cwd)).toBeNull();
       expect(readModuleState(cwd)).toBeNull();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("persists local inventory state in .habitat/inventory.json", () => {
+    const cwd = makeTempDir();
+
+    try {
+      writeInventoryState(
+        {
+          resources: {
+            iron: 5,
+            circuit: 2,
+          },
+        },
+        cwd,
+      );
+
+      expect(readInventoryState(cwd)).toEqual({
+        resources: {
+          iron: 5,
+          circuit: 2,
+        },
+      });
+
+      removeInventoryState(cwd);
+      expect(readInventoryState(cwd)).toBeNull();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("persists local construction state in .habitat/construction.json", () => {
+    const cwd = makeTempDir();
+
+    try {
+      writeConstructionState(
+        {
+          activeJob: {
+            blueprintId: "small-solar-array",
+            futureModuleId: "small-solar-array-1",
+            futureModuleType: "small-solar-array",
+            futureModuleDisplayName: "Small Solar Array",
+            facilityModuleId: "starter-workshop-fabricator-1",
+            totalBuildTicks: 180,
+            remainingBuildTicks: 180,
+            futureRuntimeAttributes: { health: 100 },
+            futureCapabilities: ["solar-generation"],
+            requiredMaterials: { ferrite: 90 },
+          },
+        },
+        cwd,
+      );
+
+      expect(readConstructionState(cwd)).toEqual({
+        activeJob: {
+          blueprintId: "small-solar-array",
+          futureModuleId: "small-solar-array-1",
+          futureModuleType: "small-solar-array",
+          futureModuleDisplayName: "Small Solar Array",
+          facilityModuleId: "starter-workshop-fabricator-1",
+          totalBuildTicks: 180,
+          remainingBuildTicks: 180,
+          futureRuntimeAttributes: { health: 100 },
+          futureCapabilities: ["solar-generation"],
+          requiredMaterials: { ferrite: 90 },
+        },
+      });
+
+      removeConstructionState(cwd);
+      expect(readConstructionState(cwd)).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

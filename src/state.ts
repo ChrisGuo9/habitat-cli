@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { KeplerBlueprint, KeplerStarterModule } from "./kepler";
 
@@ -18,6 +18,27 @@ export type HabitatModuleState = {
 
 export type HabitatSimulationState = {
   currentTick: number;
+};
+
+export type HabitatInventoryState = {
+  resources: Record<string, number>;
+};
+
+export type HabitatConstructionJob = {
+  blueprintId: string;
+  futureModuleId: string;
+  futureModuleType: string;
+  futureModuleDisplayName: string;
+  facilityModuleId: string;
+  totalBuildTicks: number;
+  remainingBuildTicks: number;
+  futureRuntimeAttributes: Record<string, unknown>;
+  futureCapabilities: string[];
+  requiredMaterials: Record<string, number>;
+};
+
+export type HabitatConstructionState = {
+  activeJob: HabitatConstructionJob | null;
 };
 
 export type LocalModuleInput = {
@@ -44,6 +65,8 @@ export type ModuleReference = {
 const REGISTRATION_PATH = ".habitat/registration.json";
 const MODULES_PATH = ".habitat/modules.json";
 const SIMULATION_PATH = ".habitat/simulation.json";
+const INVENTORY_PATH = ".habitat/inventory.json";
+const CONSTRUCTION_PATH = ".habitat/construction.json";
 
 function readJson<T>(filePath: string): T | null {
   if (!existsSync(filePath)) return null;
@@ -52,7 +75,16 @@ function readJson<T>(filePath: string): T | null {
 
 function writeJson(filePath: string, value: unknown): void {
   mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  try {
+    renameSync(tempPath, filePath);
+  } catch (error) {
+    if (existsSync(tempPath)) {
+      unlinkSync(tempPath);
+    }
+    throw error;
+  }
 }
 
 function removeJson(filePath: string): void {
@@ -69,6 +101,14 @@ function modulesPath(cwd = process.cwd()): string {
 
 function simulationPath(cwd = process.cwd()): string {
   return resolve(cwd, SIMULATION_PATH);
+}
+
+function inventoryPath(cwd = process.cwd()): string {
+  return resolve(cwd, INVENTORY_PATH);
+}
+
+function constructionPath(cwd = process.cwd()): string {
+  return resolve(cwd, CONSTRUCTION_PATH);
 }
 
 export function readRegistration(cwd = process.cwd()): HabitatRegistration | null {
@@ -105,6 +145,41 @@ export function writeSimulationState(state: HabitatSimulationState, cwd = proces
 
 export function removeSimulationState(cwd = process.cwd()): void {
   removeJson(simulationPath(cwd));
+}
+
+export function readInventoryState(cwd = process.cwd()): HabitatInventoryState | null {
+  return readJson<HabitatInventoryState>(inventoryPath(cwd));
+}
+
+export function writeInventoryState(state: HabitatInventoryState, cwd = process.cwd()): void {
+  writeJson(inventoryPath(cwd), state);
+}
+
+export function removeInventoryState(cwd = process.cwd()): void {
+  removeJson(inventoryPath(cwd));
+}
+
+export function readConstructionState(cwd = process.cwd()): HabitatConstructionState | null {
+  return readJson<HabitatConstructionState>(constructionPath(cwd));
+}
+
+export function writeConstructionState(state: HabitatConstructionState, cwd = process.cwd()): void {
+  writeJson(constructionPath(cwd), state);
+}
+
+export function removeConstructionState(cwd = process.cwd()): void {
+  removeJson(constructionPath(cwd));
+}
+
+export function readOrCreateInventoryState(cwd = process.cwd()): HabitatInventoryState {
+  const existing = readInventoryState(cwd);
+  if (existing) {
+    return existing;
+  }
+
+  const initialState = { resources: {} };
+  writeInventoryState(initialState, cwd);
+  return initialState;
 }
 
 export function readOrCreateSimulationState(cwd = process.cwd()): HabitatSimulationState {
