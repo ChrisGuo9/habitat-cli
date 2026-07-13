@@ -250,6 +250,15 @@ beforeAll(() => {
           });
         }
 
+        if (url.pathname === "/world/solar-irradiance" && request.method === "GET") {
+          if (request.headers.get("Authorization") === "Bearer solar-failure-token") {
+            return new Response("solar service unavailable", { status: 503 });
+          }
+          return Response.json({
+            solarIrradiance: { wPerM2: 900, condition: "clear" },
+          });
+        }
+
         return new Response("not found", { status: 404 });
       })();
     },
@@ -263,6 +272,49 @@ afterAll(() => {
 });
 
 describe("habitat cli", () => {
+  test("solar status reports current Kepler irradiance", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const result = await runCli(["solar", "status"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Solar Status");
+      expect(result.stdout).toContain("wPerM2");
+      expect(result.stdout).toContain("900");
+      expect(result.stdout).toContain("condition");
+      expect(result.stdout).toContain("clear");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tick leaves local state unchanged when solar data is unavailable", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      const simulationPath = join(cwd, ".habitat", "simulation.json");
+
+      const result = await runCli(["tick", "1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "solar-failure-token",
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Kepler request failed (503)");
+      expect(existsSync(simulationPath)).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("module set-status updates only runtimeAttributes.status and reports power draw in that state", async () => {
     const cwd = makeTempDir();
 
@@ -554,9 +606,13 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("0.05");
       expect(result.stdout).toContain("storedEnergyKwh");
       expect(result.stdout).toContain("9.95");
+      expect(result.stdout).toContain("solarIrradianceWPerM2");
+      expect(result.stdout).toContain("solarCondition");
       expect(result.stdout).toContain("constructionCompleted");
       expect(result.stdout).toContain("false");
-      expect(requests).toEqual([]);
+      expect(requests).toEqual([
+        { method: "GET", pathname: "/world/solar-irradiance", body: null },
+      ]);
 
       const simulation = JSON.parse(readFileSync(join(cwd, ".habitat", "simulation.json"), "utf8"));
       expect(simulation).toEqual({ currentTick: 60 });
@@ -1296,6 +1352,14 @@ describe("habitat cli", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("constructionCompleted");
       expect(result.stdout).toContain("true");
+
+      const solarTick = await runCli(["tick", "1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(solarTick.exitCode).toBe(0);
+      expect(solarTick.stdout).toContain("generatedKwh");
+      expect(solarTick.stdout).toContain("0.001667");
 
       const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
       expect(modules.modules.find((module: { id: string }) => module.id === "small-solar-array-1")).toMatchObject({

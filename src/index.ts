@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { loadKeplerConfig } from "./config";
 import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
-import { getBlueprint, getHabitatRegistration, registerHabitat } from "./kepler";
+import { getBlueprint, getHabitatRegistration, getSolarIrradiance, registerHabitat } from "./kepler";
 import { registerCatalogCommands } from "./commands/catalog";
 import {
   buildModuleStatusRows,
@@ -135,6 +135,24 @@ program
     }
   });
 
+const solarCommand = program.command("solar").description("inspect current solar conditions");
+
+solarCommand
+  .command("status")
+  .description("show current Kepler solar irradiance")
+  .action(async () => {
+    try {
+      const config = loadKeplerConfig();
+      const response = await getSolarIrradiance(config);
+      printSection("Solar Status", [
+        ["wPerM2", String(response.solarIrradiance.wPerM2)],
+        ["condition", response.solarIrradiance.condition],
+      ]);
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
+
 program
   .command("tick")
   .description("advance the local habitat simulation by one-second ticks")
@@ -152,12 +170,14 @@ program
         throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
+      const solarIrradiance = await getSolarIrradiance(loadKeplerConfig());
       const simulationState = readOrCreateSimulationState();
       const constructionState = readConstructionState();
       const result = runSimulationTicks({
         moduleState,
         simulationState,
         tickCount,
+        solarIrradianceWPerM2: solarIrradiance.solarIrradiance.wPerM2,
         constructionState,
       });
 
@@ -169,7 +189,10 @@ program
         ["blockedTicks", String(result.summary.blockedTicks)],
         ["powerBlockedTicks", String(result.summary.powerBlockedTicks)],
         ["currentTick", String(result.simulationState.currentTick)],
+        ["solarIrradianceWPerM2", String(solarIrradiance.solarIrradiance.wPerM2)],
+        ["solarCondition", solarIrradiance.solarIrradiance.condition],
         ["consumedKwh", String(result.summary.consumedKwh)],
+        ["generatedKwh", String(result.summary.generatedKwh)],
         ["storedEnergyKwh", String(result.summary.storedEnergyKwh)],
         ["powerAvailability", result.summary.storedEnergyKwh > 0 ? "available" : "unavailable"],
         [

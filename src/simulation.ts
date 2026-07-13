@@ -10,6 +10,7 @@ type SimulationInput = {
   moduleState: HabitatModuleState;
   simulationState: HabitatSimulationState;
   tickCount: number;
+  solarIrradianceWPerM2?: number;
   constructionState?: HabitatConstructionState | null;
 };
 
@@ -19,6 +20,7 @@ type SimulationSummary = {
   blockedTicks: number;
   powerBlockedTicks: number;
   consumedKwh: number;
+  generatedKwh: number;
   storedEnergyKwh: number;
   constructionCompleted: boolean;
 };
@@ -33,7 +35,7 @@ export type SimulationResult = {
 export function runSimulationTicks(input: SimulationInput): SimulationResult {
   const modules = input.moduleState.modules.map(cloneModule);
   const activeJob = input.constructionState?.activeJob ? cloneJob(input.constructionState.activeJob) : null;
-  const tickOutcome = runTickLoop(modules, activeJob, input.tickCount);
+  const tickOutcome = runTickLoop(modules, activeJob, input.tickCount, input.solarIrradianceWPerM2 ?? 0);
 
   return {
     moduleState: {
@@ -52,6 +54,7 @@ export function runSimulationTicks(input: SimulationInput): SimulationResult {
       blockedTicks: tickOutcome.blockedTicks,
       powerBlockedTicks: tickOutcome.powerBlockedTicks,
       consumedKwh: roundTo(tickOutcome.consumedKwh),
+      generatedKwh: roundTo(tickOutcome.generatedKwh),
       storedEnergyKwh: roundTo(sumStoredEnergy(tickOutcome.modules)),
       constructionCompleted: tickOutcome.constructionCompleted,
     },
@@ -65,6 +68,7 @@ type TickLoopResult = {
   blockedTicks: number;
   powerBlockedTicks: number;
   consumedKwh: number;
+  generatedKwh: number;
   constructionCompleted: boolean;
 };
 
@@ -72,12 +76,14 @@ function runTickLoop(
   modules: KeplerStarterModule[],
   constructionJob: HabitatConstructionJob | null,
   tickCount: number,
+  solarIrradianceWPerM2: number,
 ): TickLoopResult {
   let currentJob = constructionJob;
   let completedTicks = 0;
   let blockedTicks = 0;
   let powerBlockedTicks = 0;
   let consumedKwh = 0;
+  let generatedKwh = 0;
   let constructionCompleted = false;
 
   for (let i = 0; i < tickCount; i += 1) {
@@ -86,6 +92,8 @@ function runTickLoop(
     const batteryIndexes = batteryModuleIndexes(modules);
     const activeJob = currentJob;
 
+    const tickGeneration = generateSolarEnergy(modules, batteryIndexes, solarIrradianceWPerM2);
+    generatedKwh += tickGeneration;
     drainEnergy(modules, batteryIndexes, tickConsumption);
     consumedKwh += tickConsumption;
     completedTicks += 1;
@@ -120,8 +128,39 @@ function runTickLoop(
     blockedTicks,
     powerBlockedTicks,
     consumedKwh,
+    generatedKwh,
     constructionCompleted,
   };
+}
+
+function generateSolarEnergy(
+  modules: KeplerStarterModule[],
+  batteryIndexes: number[],
+  solarIrradianceWPerM2: number,
+): number {
+  if (solarIrradianceWPerM2 <= 0) return 0;
+
+  const multiplier = solarIrradianceWPerM2 / 900;
+  let remaining = 0;
+  for (const module of modules) {
+    if (!module.capabilities.includes("solar-generation") || !isEffectivelyOnline([module], module.id)) continue;
+    remaining += (getNumericAttribute(module, "powerGenerationKw") ?? 0) * multiplier * 0.5 / 3600;
+  }
+
+  let stored = 0;
+  for (const index of batteryIndexes) {
+    const battery = modules[index];
+    if (!battery) continue;
+    const current = getNumericAttribute(battery, "currentEnergyKwh") ?? 0;
+    const capacity = getNumericAttribute(battery, "energyStorageKwh") ?? Number.POSITIVE_INFINITY;
+    const delta = Math.min(remaining, Math.max(0, capacity - current));
+    battery.runtimeAttributes.currentEnergyKwh = current + delta;
+    remaining -= delta;
+    stored += delta;
+    if (remaining <= 0) break;
+  }
+
+  return stored;
 }
 
 function totalPowerDrawKw(modules: KeplerStarterModule[]): number {

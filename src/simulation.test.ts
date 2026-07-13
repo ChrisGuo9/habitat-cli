@@ -10,6 +10,41 @@ function makeState(modules: HabitatModuleState["modules"]): HabitatModuleState {
 }
 
 describe("runSimulationTicks", () => {
+  test("charges a battery from an online solar module", () => {
+    const result = runSimulationTicks({
+      moduleState: makeState([
+        {
+          id: "battery-a",
+          blueprintId: "basic-battery",
+          displayName: "Battery A",
+          connectedTo: [],
+          runtimeAttributes: {
+            currentEnergyKwh: 0,
+            energyStorageKwh: 1,
+          },
+          capabilities: ["power-storage"],
+        },
+        {
+          id: "solar-a",
+          blueprintId: "small-solar-array",
+          displayName: "Solar A",
+          connectedTo: [],
+          runtimeAttributes: {
+            status: "online",
+            powerGenerationKw: 12,
+          },
+          capabilities: ["solar-generation"],
+        },
+      ]),
+      simulationState: { currentTick: 0 },
+      tickCount: 1,
+      solarIrradianceWPerM2: 900,
+    });
+
+    expect(result.summary.generatedKwh).toBe(0.001667);
+    expect(result.summary.storedEnergyKwh).toBe(0.001667);
+  });
+
   test("drains battery energy from module power demand and advances currentTick", () => {
     const result = runSimulationTicks({
       moduleState: makeState([
