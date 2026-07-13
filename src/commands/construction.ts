@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { readInventoryState, removeInventoryState, writeInventoryState } from "../state";
+import { readInventoryState, removeInventoryState, writeInventoryState } from "../remote-state";
 
 export function registerInventoryCommands(program: Command): void {
   const inventoryCommand = program

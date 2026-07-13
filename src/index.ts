@@ -3,9 +3,9 @@
 import { Command } from "commander";
 import { randomUUID } from "node:crypto";
 import { loadKeplerConfig } from "./config";
+import { getBlueprintViaApi as getBlueprint, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, apiRequest } from "./api/client";
 import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
-import { getBlueprint, getHabitatRegistration, getSolarIrradiance, registerHabitat } from "./kepler";
 import { registerCatalogCommands } from "./commands/catalog";
 import {
   buildModuleStatusRows,
@@ -40,7 +40,7 @@ import {
   writeModuleState,
   writeRegistration,
   writeSimulationState,
-} from "./state";
+} from "./remote-state";
 import type { HabitatConstructionState, HabitatInventoryState, HabitatModuleState } from "./state";
 
 const program = new Command();
@@ -58,26 +58,12 @@ program
   .requiredOption("--name <name>", "habitat display name")
   .action(async (options: { name: string }) => {
     try {
-      const config = loadKeplerConfig();
-      const habitatUuid = randomUUID();
-      const response = await registerHabitat(config, options.name, habitatUuid);
-
-      writeRegistration({
-        habitatId: response.habitatId,
-        habitatUuid,
-        displayName: options.name,
-        baseUrl: config.baseUrl,
-        tokenSource: config.tokenSource,
-      });
-
-      writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints));
+      const registration = await registerHabitat(options.name);
 
         printSection("Registration", [
           ["displayName", options.name],
-          ["habitatId", response.habitatId],
-          ["habitatUuid", habitatUuid],
-          ["starterModules", String(response.starterModules.length)],
-          ["blueprints", String(response.blueprints.length)],
+          ["habitatId", registration?.habitatId ?? "unknown"],
+          ["habitatUuid", registration?.habitatUuid ?? "unknown"],
       ]);
     } catch (error) {
       exitWithError(error);
@@ -89,13 +75,12 @@ program
   .description("show the current Kepler registration status")
   .action(async () => {
     try {
-      const registration = readRegistration();
+      const registration = await getRegistration();
       if (!registration) {
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      const config = loadKeplerConfig();
-      const response = await getHabitatRegistration(config, registration.habitatId);
+      const response = await apiRequest<{ habitat: { status: string; catalogVersion: string; habitatSlug: string; lastSeenAt?: string | null } }>("/habitat/status");
       const { habitat } = response;
 
       printSection("Habitat Status", [
@@ -142,8 +127,7 @@ solarCommand
   .description("show current Kepler solar irradiance")
   .action(async () => {
     try {
-      const config = loadKeplerConfig();
-      const response = await getSolarIrradiance(config);
+      const response = await getSolarIrradiance();
       printSection("Solar Status", [
         ["wPerM2", String(response.solarIrradiance.wPerM2)],
         ["condition", response.solarIrradiance.condition],
@@ -170,7 +154,7 @@ program
         throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      const solarIrradiance = await getSolarIrradiance(loadKeplerConfig());
+      const solarIrradiance = await getSolarIrradiance();
       const simulationState = readOrCreateSimulationState();
       const constructionState = readConstructionState();
       const result = runSimulationTicks({
@@ -228,8 +212,7 @@ program
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      const config = loadKeplerConfig();
-      const blueprint = await getBlueprint(config, blueprintId);
+      const { blueprint } = await getBlueprint(blueprintId);
       const moduleState = readModuleState();
       if (!moduleState) {
         throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');

@@ -1,8 +1,7 @@
 import { Command } from "commander";
-import { loadKeplerConfig } from "../config";
+import { getBlueprintViaApi as getBlueprint, getCatalog, getResources } from "../api/client";
 import { evaluateConstructionReadiness } from "../construction";
-import { getBlueprint, listBlueprintCatalog, listResourceCatalog } from "../kepler";
-import { readInventoryState, readModuleState, readRegistration } from "../state";
+import { readInventoryState, readModuleState, readRegistration } from "../remote-state";
 
 export function registerCatalogCommands(program: Command): void {
   const blueprintCommand = program
@@ -18,8 +17,7 @@ export function registerCatalogCommands(program: Command): void {
     .description("list possible resource types from Kepler")
     .action(async () => {
       try {
-        const config = loadKeplerConfig();
-        const response = await listResourceCatalog(config);
+        const response = await getResources();
 
         printSection("Resource Catalog", [
           ["catalogVersion", response.catalogVersion],
@@ -47,8 +45,7 @@ export function registerCatalogCommands(program: Command): void {
     .description("list official blueprints")
     .action(async () => {
       try {
-        const config = loadKeplerConfig();
-        const response = await listBlueprintCatalog(config);
+        const response = await getCatalog();
         const rows = response.blueprints.map((blueprint) => ({
           blueprintId: blueprint.blueprintId,
           displayName: blueprint.displayName,
@@ -91,8 +88,7 @@ export function registerCatalogCommands(program: Command): void {
     .argument("<blueprint-id>", "blueprint id")
     .action(async (blueprintId: string) => {
       try {
-        const config = loadKeplerConfig();
-        const blueprint = await getBlueprint(config, blueprintId);
+        const { blueprint } = await getBlueprint(blueprintId);
         printBlueprint(blueprint);
       } catch (error) {
         if (error instanceof Error && error.message.includes("Kepler request failed (404)")) {
@@ -113,8 +109,7 @@ export function registerCatalogCommands(program: Command): void {
           throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
         }
 
-        const config = loadKeplerConfig();
-        const blueprint = await getBlueprint(config, blueprintId);
+        const { blueprint } = await getBlueprint(blueprintId);
         const moduleState = readModuleState();
         const inventory = readInventoryState() ?? { resources: {} };
 
