@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState } from "./state";
 
 const cliPath = resolve(import.meta.dir, "index.ts");
 
@@ -300,8 +301,6 @@ describe("habitat cli", () => {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "test-token",
       });
-      const simulationPath = join(cwd, ".habitat", "simulation.json");
-
       const result = await runCli(["tick", "1"], cwd, {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "solar-failure-token",
@@ -309,7 +308,7 @@ describe("habitat cli", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("Kepler request failed (503)");
-      expect(existsSync(simulationPath)).toBe(false);
+      expect(readSimulationState(cwd)).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -349,7 +348,7 @@ describe("habitat cli", () => {
         ),
       ).toMatchObject({ exitCode: 0 });
 
-      const before = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const before = readModuleState(cwd)!;
       const beforeBattery = before.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1");
       expect(beforeBattery?.runtimeAttributes).toMatchObject({
         health: 100,
@@ -373,7 +372,7 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("powerDrawKw");
       expect(result.stdout).toContain("0.5");
 
-      const after = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const after = readModuleState(cwd)!;
       const afterBattery = after.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1");
       expect(afterBattery?.runtimeAttributes).toEqual({
         health: 100,
@@ -614,10 +613,10 @@ describe("habitat cli", () => {
         { method: "GET", pathname: "/world/solar-irradiance", body: null },
       ]);
 
-      const simulation = JSON.parse(readFileSync(join(cwd, ".habitat", "simulation.json"), "utf8"));
+      const simulation = readSimulationState(cwd)!;
       expect(simulation).toEqual({ currentTick: 60 });
 
-      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const modules = readModuleState(cwd)!;
       expect(modules.modules.find((module: { id: string }) => module.id === "starter-basic-battery-1")?.runtimeAttributes)
         .toMatchObject({
           currentEnergyKwh: 9.95,
@@ -739,20 +738,17 @@ describe("habitat cli", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
 
-      const registrationPath = join(cwd, ".habitat", "registration.json");
-      const modulesPath = join(cwd, ".habitat", "modules.json");
+      expect(existsSync(join(cwd, "habitat.sqlite"))).toBe(true);
+      expect(existsSync(join(cwd, ".habitat"))).toBe(false);
 
-      expect(existsSync(registrationPath)).toBe(true);
-      expect(existsSync(modulesPath)).toBe(true);
-
-      const registration = JSON.parse(readFileSync(registrationPath, "utf8"));
+      const registration = readRegistration(cwd)!;
       expect(registration).toMatchObject({
         habitatId: "habitat_11111111_1111_4111_8111_111111111111",
         habitatUuid: requestBody.habitatUuid,
         displayName: "Artemis Ridge",
       });
 
-      const modules = JSON.parse(readFileSync(modulesPath, "utf8"));
+      const modules = readModuleState(cwd)!;
       expect(modules.modules).toHaveLength(6);
       expect(modules.blueprints).toHaveLength(1);
     } finally {
@@ -1071,16 +1067,16 @@ describe("habitat cli", () => {
         KEPLER_PLANET_TOKEN: "test-token",
       });
 
-      const beforeModules = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
-      const beforeInventory = readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8");
+      const beforeModules = readModuleState(cwd);
+      const beforeInventory = readInventoryState(cwd);
 
       const result = await runCli(["construct", "small-solar-array", "--dry-run"], cwd, {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "test-token",
       });
 
-      const afterModules = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
-      const afterInventory = readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8");
+      const afterModules = readModuleState(cwd);
+      const afterInventory = readInventoryState(cwd);
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Construction Dry Run");
@@ -1094,8 +1090,8 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("buildTicks");
       expect(result.stdout).toContain("180");
       expect(result.stdout).toContain("canStart");
-      expect(afterModules).toBe(beforeModules);
-      expect(afterInventory).toBe(beforeInventory);
+      expect(afterModules).toEqual(beforeModules);
+      expect(afterInventory).toEqual(beforeInventory);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -1127,8 +1123,8 @@ describe("habitat cli", () => {
         KEPLER_PLANET_TOKEN: "test-token",
       });
 
-      const beforeModules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
-      const beforeInventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
+      const beforeModules = readModuleState(cwd)!;
+      const beforeInventory = readInventoryState(cwd)!;
 
       const result = await runCli(["construct", "small-solar-array"], cwd, {
         KEPLER_BASE_URL: baseUrl,
@@ -1146,9 +1142,9 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("Resources Spent");
       expect(result.stdout).toContain("ferrite");
 
-      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
-      const inventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
-      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+      const modules = readModuleState(cwd)!;
+      const inventory = readInventoryState(cwd)!;
+      const construction = readConstructionState(cwd)!;
 
       expect(modules).not.toEqual(beforeModules);
       expect(inventory).not.toEqual(beforeInventory);
@@ -1255,11 +1251,12 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("false");
       expect(result.stderr).toContain("spent construction materials were not refunded");
 
-      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
-      const inventory = JSON.parse(readFileSync(join(cwd, ".habitat", "inventory.json"), "utf8"));
-      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+      const modules = readModuleState(cwd)!;
+      const inventory = readInventoryState(cwd)!;
+      const construction = readConstructionState(cwd)!;
       const facility = modules.modules.find((module: { id: string }) => module.id === "starter-workshop-fabricator-1");
 
+      if (!facility) throw new Error("Expected the fabricator module to remain in local state");
       expect(facility.runtimeAttributes).toMatchObject({ busy: false });
       expect(facility.runtimeAttributes.activeJobId).toBeUndefined();
       expect(inventory.resources).toEqual({ ferrite: 0, "silicate-glass": 0, "conductive-ore": 0 });
@@ -1278,7 +1275,7 @@ describe("habitat cli", () => {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "test-token",
       });
-      const before = readFileSync(join(cwd, ".habitat", "modules.json"), "utf8");
+      const before = readModuleState(cwd);
       const result = await runCli(["construction", "cancel", "fab-1"], cwd, {
         KEPLER_BASE_URL: baseUrl,
         KEPLER_PLANET_TOKEN: "test-token",
@@ -1286,8 +1283,8 @@ describe("habitat cli", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("No active construction job found");
-      expect(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8")).toBe(before);
-      expect(existsSync(join(cwd, ".habitat", "construction.json"))).toBe(false);
+      expect(readModuleState(cwd)).toEqual(before);
+      expect(readConstructionState(cwd)).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -1361,7 +1358,7 @@ describe("habitat cli", () => {
       expect(solarTick.stdout).toContain("generatedKwh");
       expect(solarTick.stdout).toContain("0.001667");
 
-      const modules = JSON.parse(readFileSync(join(cwd, ".habitat", "modules.json"), "utf8"));
+      const modules = readModuleState(cwd)!;
       expect(modules.modules.find((module: { id: string }) => module.id === "small-solar-array-1")).toMatchObject({
         id: "small-solar-array-1",
         blueprintId: "small-solar-array",
@@ -1385,7 +1382,7 @@ describe("habitat cli", () => {
         busy: false,
       });
 
-      const construction = JSON.parse(readFileSync(join(cwd, ".habitat", "construction.json"), "utf8"));
+      const construction = readConstructionState(cwd)!;
       expect(construction).toEqual({ activeJob: null });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -1577,8 +1574,8 @@ describe("habitat cli", () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Removed local habitat registration");
-      expect(existsSync(join(cwd, ".habitat", "registration.json"))).toBe(false);
-      expect(existsSync(join(cwd, ".habitat", "modules.json"))).toBe(false);
+      expect(readRegistration(cwd)).toBeNull();
+      expect(readModuleState(cwd)).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

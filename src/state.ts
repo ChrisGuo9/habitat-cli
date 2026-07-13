@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { Database } from "bun:sqlite";
+import { resolve } from "node:path";
 import type { KeplerBlueprint, KeplerStarterModule } from "./kepler";
 
 export type HabitatRegistration = {
@@ -62,113 +62,109 @@ export type ModuleReference = {
   module: KeplerStarterModule;
 };
 
-const REGISTRATION_PATH = ".habitat/registration.json";
-const MODULES_PATH = ".habitat/modules.json";
-const SIMULATION_PATH = ".habitat/simulation.json";
-const INVENTORY_PATH = ".habitat/inventory.json";
-const CONSTRUCTION_PATH = ".habitat/construction.json";
+const DATABASE_NAME = "habitat.sqlite";
 
-function readJson<T>(filePath: string): T | null {
-  if (!existsSync(filePath)) return null;
-  return JSON.parse(readFileSync(filePath, "utf8")) as T;
+type StateRow = { value: string };
+
+function databasePath(cwd = process.cwd()): string {
+  return resolve(cwd, DATABASE_NAME);
 }
 
-function writeJson(filePath: string, value: unknown): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+function withDatabase<T>(cwd: string, operation: (database: Database) => T): T {
+  const database = new Database(databasePath(cwd));
+  database.run(`
+    CREATE TABLE IF NOT EXISTS habitat_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
   try {
-    renameSync(tempPath, filePath);
-  } catch (error) {
-    if (existsSync(tempPath)) {
-      unlinkSync(tempPath);
-    }
-    throw error;
+    return operation(database);
+  } finally {
+    database.close();
   }
 }
 
-function removeJson(filePath: string): void {
-  if (existsSync(filePath)) unlinkSync(filePath);
+function readState<T>(key: string, cwd: string): T | null {
+  return withDatabase(cwd, (database) => {
+    const row = database.query("SELECT value FROM habitat_state WHERE key = ?1").get(key) as StateRow | null;
+    return row ? (JSON.parse(row.value) as T) : null;
+  });
 }
 
-function registrationPath(cwd = process.cwd()): string {
-  return resolve(cwd, REGISTRATION_PATH);
+function writeState(key: string, value: unknown, cwd: string): void {
+  withDatabase(cwd, (database) => {
+    database
+      .query("INSERT INTO habitat_state (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(key, JSON.stringify(value));
+  });
 }
 
-function modulesPath(cwd = process.cwd()): string {
-  return resolve(cwd, MODULES_PATH);
-}
-
-function simulationPath(cwd = process.cwd()): string {
-  return resolve(cwd, SIMULATION_PATH);
-}
-
-function inventoryPath(cwd = process.cwd()): string {
-  return resolve(cwd, INVENTORY_PATH);
-}
-
-function constructionPath(cwd = process.cwd()): string {
-  return resolve(cwd, CONSTRUCTION_PATH);
+function removeState(key: string, cwd: string): void {
+  withDatabase(cwd, (database) => {
+    database.query("DELETE FROM habitat_state WHERE key = ?1").run(key);
+  });
 }
 
 export function readRegistration(cwd = process.cwd()): HabitatRegistration | null {
-  return readJson<HabitatRegistration>(registrationPath(cwd));
+  return readState<HabitatRegistration>("registration", cwd);
 }
 
 export function writeRegistration(registration: HabitatRegistration, cwd = process.cwd()): void {
-  writeJson(registrationPath(cwd), registration);
+  writeState("registration", registration, cwd);
 }
 
 export function removeRegistration(cwd = process.cwd()): void {
-  removeJson(registrationPath(cwd));
+  removeState("registration", cwd);
 }
 
 export function readModuleState(cwd = process.cwd()): HabitatModuleState | null {
-  return readJson<HabitatModuleState>(modulesPath(cwd));
+  return readState<HabitatModuleState>("modules", cwd);
 }
 
 export function writeModuleState(state: HabitatModuleState, cwd = process.cwd()): void {
-  writeJson(modulesPath(cwd), state);
+  writeState("modules", state, cwd);
 }
 
 export function removeModuleState(cwd = process.cwd()): void {
-  removeJson(modulesPath(cwd));
+  removeState("modules", cwd);
 }
 
 export function readSimulationState(cwd = process.cwd()): HabitatSimulationState | null {
-  return readJson<HabitatSimulationState>(simulationPath(cwd));
+  return readState<HabitatSimulationState>("simulation", cwd);
 }
 
 export function writeSimulationState(state: HabitatSimulationState, cwd = process.cwd()): void {
-  writeJson(simulationPath(cwd), state);
+  writeState("simulation", state, cwd);
 }
 
 export function removeSimulationState(cwd = process.cwd()): void {
-  removeJson(simulationPath(cwd));
+  removeState("simulation", cwd);
 }
 
 export function readInventoryState(cwd = process.cwd()): HabitatInventoryState | null {
-  return readJson<HabitatInventoryState>(inventoryPath(cwd));
+  return readState<HabitatInventoryState>("inventory", cwd);
 }
 
 export function writeInventoryState(state: HabitatInventoryState, cwd = process.cwd()): void {
-  writeJson(inventoryPath(cwd), state);
+  writeState("inventory", state, cwd);
 }
 
 export function removeInventoryState(cwd = process.cwd()): void {
-  removeJson(inventoryPath(cwd));
+  removeState("inventory", cwd);
 }
 
 export function readConstructionState(cwd = process.cwd()): HabitatConstructionState | null {
-  return readJson<HabitatConstructionState>(constructionPath(cwd));
+  return readState<HabitatConstructionState>("construction", cwd);
 }
 
 export function writeConstructionState(state: HabitatConstructionState, cwd = process.cwd()): void {
-  writeJson(constructionPath(cwd), state);
+  writeState("construction", state, cwd);
 }
 
 export function removeConstructionState(cwd = process.cwd()): void {
-  removeJson(constructionPath(cwd));
+  removeState("construction", cwd);
 }
 
 export function readOrCreateInventoryState(cwd = process.cwd()): HabitatInventoryState {

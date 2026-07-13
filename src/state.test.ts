@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -28,7 +28,7 @@ function makeTempDir(): string {
 }
 
 describe("habitat state", () => {
-  test("persists registration details in .habitat/registration.json", () => {
+  test("persists registration details in habitat.sqlite without creating JSON state", () => {
     const cwd = makeTempDir();
 
     try {
@@ -50,6 +50,8 @@ describe("habitat state", () => {
         baseUrl: "https://planet.turingguild.com",
         tokenSource: "KEPLER_PLANET_TOKEN",
       });
+      expect(existsSync(join(cwd, "habitat.sqlite"))).toBe(true);
+      expect(existsSync(join(cwd, ".habitat", "registration.json"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -192,7 +194,7 @@ describe("habitat state", () => {
     }
   });
 
-  test("persists local inventory state in .habitat/inventory.json", () => {
+  test("persists local inventory state in SQLite", () => {
     const cwd = makeTempDir();
 
     try {
@@ -220,7 +222,7 @@ describe("habitat state", () => {
     }
   });
 
-  test("persists local construction state in .habitat/construction.json", () => {
+  test("persists local construction state in SQLite", () => {
     const cwd = makeTempDir();
 
     try {
