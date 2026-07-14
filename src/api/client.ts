@@ -5,15 +5,28 @@ import type { HabitatInventoryState, HabitatModuleState } from "../state";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 
-export function apiBaseUrl(): string {
-  return (process.env.HABITAT_API_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+export function apiBaseUrl(env: Record<string, string | undefined> = process.env): string {
+  return (env.HABITAT_API_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
-  });
+function requestLabel(path: string, method: string): string {
+  return `${method.toUpperCase()} ${path}`;
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}, fetchImplementation: typeof fetch = fetch): Promise<T> {
+  const method = init.method ?? "GET";
+  const label = requestLabel(path, method);
+  let response: Response;
+
+  try {
+    response = await fetchImplementation(`${apiBaseUrl()}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+    });
+  } catch {
+    throw new Error(`${label} could not connect to the Habitat API. Start it with \`bun run server\`.`);
+  }
+
   const body = await response.text();
   let parsed: unknown = undefined;
   if (body) {
@@ -23,23 +36,35 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     const message = parsed && typeof parsed === "object" && "error" in parsed
       ? String((parsed as { error: unknown }).error)
       : `Habitat API request failed (${response.status})`;
-    throw new Error(message);
+    throw new Error(`${label} failed (${response.status}): ${message}`);
   }
   return parsed as T;
 }
 
 export function apiRequestSync<T>(path: string, method = "GET", body?: unknown): T {
-  const args = ["-sS", "-X", method, `${apiBaseUrl()}${path}`];
+  const label = requestLabel(path, method);
+  const args = ["-sS", "-X", method, "-w", "\n%{http_code}", `${apiBaseUrl()}${path}`];
   if (body !== undefined) {
     args.push("-H", "Content-Type: application/json", "--data", JSON.stringify(body));
   }
 
   const result = spawnSync("curl", args, { encoding: "utf8" });
   if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || "Unable to reach Habitat API. Start it with `bun run server`.");
+    throw new Error(`${label} could not connect to the Habitat API. Start it with \`bun run server\`.`);
   }
 
-  return JSON.parse(result.stdout) as T;
+  const separator = result.stdout.lastIndexOf("\n");
+  const responseBody = separator >= 0 ? result.stdout.slice(0, separator) : result.stdout;
+  const status = separator >= 0 ? Number(result.stdout.slice(separator + 1)) : 200;
+  const parsed = responseBody ? JSON.parse(responseBody) as unknown : undefined;
+  if (status < 200 || status >= 300) {
+    const message = parsed && typeof parsed === "object" && "error" in parsed
+      ? String((parsed as { error: unknown }).error)
+      : `Habitat API request failed (${status})`;
+    throw new Error(`${label} failed (${status}): ${message}`);
+  }
+
+  return parsed as T;
 }
 
 export const getApiState = () => apiRequest<ApiState>("/state");
