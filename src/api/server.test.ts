@@ -160,4 +160,35 @@ describe("Habitat API", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  test("inventory resource routes adjust backend inventory state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const app = createApi(cwd);
+      const add = await app.request("http://test/inventory/resources/ferrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: 12 }),
+      });
+      expect(await add.json()).toEqual({ resources: { ferrite: 12 } });
+
+      const remove = await app.request("http://test/inventory/resources/ferrite", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: 5 }),
+      });
+      expect(await remove.json()).toEqual({ resources: { ferrite: 7 } });
+
+      const invalid = await app.request("http://test/inventory/resources/ferrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: -1 }),
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: "Inventory quantity must be a positive number." });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });

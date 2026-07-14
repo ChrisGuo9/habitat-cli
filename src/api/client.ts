@@ -96,3 +96,5 @@ export const updateModuleViaApi = (id: string, updates: LocalModuleUpdate) => ap
 export const deleteModuleViaApi = (id: string) => apiRequest<{ ok: true }>(`/modules/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getInventory = () => apiRequest<HabitatInventoryState | null>("/inventory");
 export const putInventory = (state: HabitatInventoryState) => apiRequest<HabitatInventoryState>("/inventory", { method: "PUT", body: JSON.stringify(state) });
+export const addInventory = (resourceType: string, quantity: number) => apiRequest<HabitatInventoryState>(`/inventory/resources/${encodeURIComponent(resourceType)}`, { method: "POST", body: JSON.stringify({ quantity }) });
+export const removeInventory = (resourceType: string, quantity: number) => apiRequest<HabitatInventoryState>(`/inventory/resources/${encodeURIComponent(resourceType)}`, { method: "DELETE", body: JSON.stringify({ quantity }) });

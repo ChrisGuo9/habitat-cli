@@ -89,6 +89,28 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   });
   app.get("/inventory", (c) => c.json(readInventoryState(cwd)));
   app.put("/inventory", async (c) => { const value = await c.req.json<HabitatInventoryState>(); writeInventoryState(value, cwd); return c.json(value); });
+  const adjustInventory = async (c: Context, direction: 1 | -1) => {
+    const resourceType = c.req.param("resourceType") ?? "";
+    try {
+      const { quantity } = await c.req.json<{ quantity?: unknown }>();
+      if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
+        return c.json({ error: "Inventory quantity must be a positive number." }, 400);
+      }
+
+      const inventory = readInventoryState(cwd) ?? { resources: {} };
+      const current = inventory.resources[resourceType] ?? 0;
+      const next = current + direction * quantity;
+      if (next < 0) {
+        return c.json({ error: `Insufficient inventory for ${resourceType}.` }, 400);
+      }
+
+      const updated = { resources: { ...inventory.resources, [resourceType]: next } };
+      writeInventoryState(updated, cwd);
+      return c.json(updated);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  };
+  app.post("/inventory/resources/:resourceType", (c) => adjustInventory(c, 1));
+  app.delete("/inventory/resources/:resourceType", (c) => adjustInventory(c, -1));
   app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getOneBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/resources", async (c) => { try { log("GET /catalog/resources -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });

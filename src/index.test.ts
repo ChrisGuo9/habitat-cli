@@ -1453,6 +1453,36 @@ describe("habitat cli", () => {
     }
   });
 
+  test("inventory add and remove use the backend and preserve quantity validation", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const add = await runCli(["inventory", "add", "ferrite", "12"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(add.exitCode).toBe(0);
+      expect(add.stdout).toContain("resourceType=ferrite");
+      expect(add.stdout).toContain("quantity=12");
+
+      const remove = await runCli(["inventory", "remove", "ferrite", "5"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(remove.exitCode).toBe(0);
+      expect(remove.stdout).toContain("quantity=7");
+
+      const invalid = await runCli(["inventory", "add", "ferrite", "-1"], cwd, {
+        KEPLER_BASE_URL: baseUrl,
+        KEPLER_PLANET_TOKEN: "test-token",
+      });
+      expect(invalid.exitCode).toBe(1);
+      expect(invalid.stderr).toContain("Inventory quantity must be a positive number.");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("module show accepts a short alias and prints the full module details", async () => {
     const cwd = makeTempDir();
 
