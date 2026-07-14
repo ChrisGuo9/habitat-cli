@@ -6,8 +6,19 @@ import { hydrateModulesFromRegistration, readConstructionState, readInventorySta
 import type { HabitatInventoryState, HabitatModuleState } from "../state";
 import { readServerConfig } from "./server-config";
 
-export function createApi(cwd = process.cwd()): Hono {
+type ApiDependencies = {
+  listBlueprintCatalog?: typeof listBlueprintCatalog;
+  getBlueprint?: typeof getBlueprint;
+  listResourceCatalog?: typeof listResourceCatalog;
+  getSolarIrradiance?: typeof getSolarIrradiance;
+};
+
+export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {}): Hono {
   const app = new Hono();
+  const listBlueprints = dependencies.listBlueprintCatalog ?? listBlueprintCatalog;
+  const getOneBlueprint = dependencies.getBlueprint ?? getBlueprint;
+  const listResources = dependencies.listResourceCatalog ?? listResourceCatalog;
+  const getSolar = dependencies.getSolarIrradiance ?? getSolarIrradiance;
   const log = (message: string) => console.log(`[habitat-api] ${message}`);
   const kepler = async <T>(method: string, path: string, action: () => Promise<T>, successStatus = 200): Promise<T> => {
     try { const result = await action(); console.log(`[kepler] ${method} ${path} -> ${successStatus}`); return result; }
@@ -55,10 +66,10 @@ export function createApi(cwd = process.cwd()): Hono {
   app.put("/modules", async (c) => { const value = await c.req.json<HabitatModuleState>(); writeModuleState(value, cwd); log(`PUT /modules -> ${value.modules.length} modules`); return c.json(value); });
   app.get("/inventory", (c) => c.json(readInventoryState(cwd)));
   app.put("/inventory", async (c) => { const value = await c.req.json<HabitatInventoryState>(); writeInventoryState(value, cwd); return c.json(value); });
-  app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprintCatalog(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
-  app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
-  app.get("/catalog/resources", async (c) => { try { log("GET /catalog/resources -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/resources", () => listResourceCatalog(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
-  app.get("/solar/irradiance", async (c) => { try { return c.json(await kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getOneBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/catalog/resources", async (c) => { try { log("GET /catalog/resources -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/solar/irradiance", async (c) => { try { return c.json(await kepler("GET", "/world/solar-irradiance", () => getSolar(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   const statusHandler = async (c: Context) => {
     try {
       const reg = readRegistration(cwd);

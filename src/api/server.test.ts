@@ -78,4 +78,40 @@ describe("Habitat API", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  test("catalog and solar routes return structured Kepler data", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      const app = createApi(cwd, {
+      listBlueprintCatalog: async () => ({ catalogVersion: "catalog-test", blueprints: [] }),
+      getBlueprint: async (_config, blueprintId) => ({
+        id: `blueprint-${blueprintId}`,
+        blueprintId,
+        displayName: "Test Blueprint",
+        description: "A test blueprint.",
+        status: "published",
+        output: {},
+        inputs: {},
+        buildTicks: 10,
+        repeatable: false,
+      }),
+      listResourceCatalog: async () => ({ catalogVersion: "catalog-test", resources: [] }),
+      getSolarIrradiance: async () => ({ solarIrradiance: { wPerM2: 900, condition: "clear" } }),
+      });
+
+      const blueprintList = await app.request("http://test/catalog/blueprints");
+      const blueprintShow = await app.request("http://test/catalog/blueprints/test-blueprint");
+      const resources = await app.request("http://test/catalog/resources");
+      const solar = await app.request("http://test/solar/irradiance");
+
+      expect(blueprintList.status).toBe(200);
+      expect(await blueprintList.json()).toEqual({ catalogVersion: "catalog-test", blueprints: [] });
+      expect(await blueprintShow.json()).toMatchObject({ blueprint: { blueprintId: "test-blueprint" } });
+      expect(await resources.json()).toEqual({ catalogVersion: "catalog-test", resources: [] });
+      expect(await solar.json()).toEqual({ solarIrradiance: { wPerM2: 900, condition: "clear" } });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
