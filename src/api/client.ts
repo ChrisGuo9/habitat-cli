@@ -3,6 +3,8 @@ import type { ApiBlueprint, ApiSolar, ApiState } from "./types";
 import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse } from "../kepler";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
 import type { KeplerStarterModule } from "../kepler";
+import type { ConstructionStartResult, ConstructionCancellationResult } from "../construction";
+import type { SimulationResult } from "../simulation";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 
@@ -98,3 +100,6 @@ export const getInventory = () => apiRequest<HabitatInventoryState | null>("/inv
 export const putInventory = (state: HabitatInventoryState) => apiRequest<HabitatInventoryState>("/inventory", { method: "PUT", body: JSON.stringify(state) });
 export const addInventory = (resourceType: string, quantity: number) => apiRequest<HabitatInventoryState>(`/inventory/resources/${encodeURIComponent(resourceType)}`, { method: "POST", body: JSON.stringify({ quantity }) });
 export const removeInventory = (resourceType: string, quantity: number) => apiRequest<HabitatInventoryState>(`/inventory/resources/${encodeURIComponent(resourceType)}`, { method: "DELETE", body: JSON.stringify({ quantity }) });
+export const runTicksViaApi = (count: number) => apiRequest<SimulationResult & { solarIrradiance: { wPerM2: number; condition: string } }>("/ticks", { method: "POST", body: JSON.stringify({ count }) });
+export const startConstructionViaApi = (blueprintId: string) => apiRequest<ConstructionStartResult>("/construction/jobs", { method: "POST", body: JSON.stringify({ blueprintId }) });
+export const cancelConstructionViaApi = (facilityId: string) => apiRequest<ConstructionCancellationResult>(`/construction/jobs/${encodeURIComponent(facilityId)}/cancel`, { method: "POST" });

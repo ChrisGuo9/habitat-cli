@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { createModuleViaApi, deleteModuleViaApi, getBlueprintViaApi as getBlueprint, getModule as getModuleViaApi, getModuleReferences, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, updateModuleViaApi, apiRequest } from "./api/client";
-import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
+import { cancelConstructionViaApi, createModuleViaApi, deleteModuleViaApi, getBlueprintViaApi as getBlueprint, getModule as getModuleViaApi, getModuleReferences, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, runTicksViaApi, startConstructionViaApi, updateModuleViaApi, apiRequest } from "./api/client";
+import { runConstructionDryRun } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
 import {
@@ -14,14 +14,11 @@ import {
   resolvePowerDrawKw,
   summarizeModuleStatus,
 } from "./module-status";
-import { runSimulationTicks } from "./simulation";
 import {
-  getModuleReference,
   hydrateModulesFromRegistration,
   listModuleReferences,
   readConstructionState,
   readInventoryState,
-  readOrCreateSimulationState,
   readRegistration,
   readModuleState,
   removeConstructionState,
@@ -30,13 +27,8 @@ import {
   removeRegistration,
   removeSimulationState,
   updateModuleStatus,
-  writeConstructionState,
-  writeInventoryState,
-  writeModuleState,
   writeRegistration,
-  writeSimulationState,
 } from "./remote-state";
-import type { HabitatConstructionState, HabitatInventoryState, HabitatModuleState } from "./state";
 
 const program = new Command();
 
@@ -144,23 +136,7 @@ program
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      const moduleState = readModuleState();
-      if (!moduleState) {
-        throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
-      }
-
-      const solarIrradiance = await getSolarIrradiance();
-      const simulationState = readOrCreateSimulationState();
-      const constructionState = readConstructionState();
-      const result = runSimulationTicks({
-        moduleState,
-        simulationState,
-        tickCount,
-        solarIrradianceWPerM2: solarIrradiance.solarIrradiance.wPerM2,
-        constructionState,
-      });
-
-      commitSimulationTick(result, moduleState, simulationState, constructionState);
+      const result = await runTicksViaApi(tickCount);
 
       printSection("Tick", [
         ["requestedTicks", String(result.summary.requestedTicks)],
@@ -168,8 +144,8 @@ program
         ["blockedTicks", String(result.summary.blockedTicks)],
         ["powerBlockedTicks", String(result.summary.powerBlockedTicks)],
         ["currentTick", String(result.simulationState.currentTick)],
-        ["solarIrradianceWPerM2", String(solarIrradiance.solarIrradiance.wPerM2)],
-        ["solarCondition", solarIrradiance.solarIrradiance.condition],
+        ["solarIrradianceWPerM2", String(result.solarIrradiance.wPerM2)],
+        ["solarCondition", result.solarIrradiance.condition],
         ["consumedKwh", String(result.summary.consumedKwh)],
         ["generatedKwh", String(result.summary.generatedKwh)],
         ["storedEnergyKwh", String(result.summary.storedEnergyKwh)],
@@ -220,8 +196,7 @@ program
         return;
       }
 
-      const started = startConstruction(blueprint, moduleState, inventory, readConstructionState());
-      commitConstructionStart(started);
+      const started = await startConstructionViaApi(blueprintId);
       printConstructionStart(started);
     } catch (error) {
       exitWithError(error);
@@ -268,22 +243,12 @@ constructionCommand
   .command("cancel")
   .description("cancel an active construction job on a facility")
   .argument("<facility-id>", "facility alias or local module id")
-  .action((facilityId: string) => {
+  .action(async (facilityId: string) => {
     try {
-      const moduleState = readModuleState();
-      if (!moduleState) {
-        throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
-      }
-
-      const facility = getModuleReference(facilityId);
-      if (!facility) {
-        throw new Error(`Local module not found: ${facilityId}`);
-      }
-
-      const result = cancelConstruction(moduleState, readConstructionState(), facility.module.id);
-      commitConstructionCancellation(result);
+      const facility = await getModuleViaApi(facilityId);
+      const result = await cancelConstructionViaApi(facility.id);
       printSection("Construction Cancelled", [
-        ["facilityId", facility.module.id],
+        ["facilityId", facility.id],
         ["blueprintId", result.job.blueprintId],
         ["outputModuleId", result.job.futureModuleId],
         ["remainingBuildTicks", String(result.job.remainingBuildTicks)],
@@ -697,84 +662,6 @@ function printConstructionStart(result: {
       ["remainingBuildTicks", String(job.remainingBuildTicks)],
       ["state", "active"],
     ]);
-  }
-}
-
-function commitConstructionStart(result: {
-  moduleState: HabitatModuleState;
-  inventoryState: HabitatInventoryState;
-  constructionState: HabitatConstructionState;
-}): void {
-  const previousModuleState = readModuleState();
-  const previousInventoryState = readInventoryState();
-  const previousConstruction = readConstructionState();
-  try {
-    writeModuleState(result.moduleState);
-    writeInventoryState(result.inventoryState);
-    writeConstructionState(result.constructionState);
-  } catch (error) {
-    if (previousModuleState) {
-      writeModuleState(previousModuleState);
-    }
-    if (previousInventoryState) {
-      writeInventoryState(previousInventoryState);
-    } else {
-      removeInventoryState();
-    }
-    if (previousConstruction) {
-      writeConstructionState(previousConstruction);
-    } else {
-      removeConstructionState();
-    }
-    throw error;
-  }
-}
-
-function commitConstructionCancellation(result: {
-  moduleState: HabitatModuleState;
-  constructionState: HabitatConstructionState;
-}): void {
-  const previousModuleState = readModuleState();
-  const previousConstruction = readConstructionState();
-  try {
-    writeModuleState(result.moduleState);
-    writeConstructionState(result.constructionState);
-  } catch (error) {
-    if (previousModuleState) {
-      writeModuleState(previousModuleState);
-    }
-    if (previousConstruction) {
-      writeConstructionState(previousConstruction);
-    } else {
-      removeConstructionState();
-    }
-    throw error;
-  }
-}
-
-function commitSimulationTick(
-  result: {
-    moduleState: HabitatModuleState;
-    simulationState: ReturnType<typeof readOrCreateSimulationState>;
-    constructionState: HabitatConstructionState;
-  },
-  previousModuleState: HabitatModuleState,
-  previousSimulationState: ReturnType<typeof readOrCreateSimulationState>,
-  previousConstruction: HabitatConstructionState | null,
-): void {
-  try {
-    writeModuleState(result.moduleState);
-    writeSimulationState(result.simulationState);
-    writeConstructionState(result.constructionState);
-  } catch (error) {
-    writeModuleState(previousModuleState);
-    writeSimulationState(previousSimulationState);
-    if (previousConstruction) {
-      writeConstructionState(previousConstruction);
-    } else {
-      removeConstructionState();
-    }
-    throw error;
   }
 }
 

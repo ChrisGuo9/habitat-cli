@@ -5,6 +5,8 @@ import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprint
 import { createModule, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate } from "../state";
 import { readServerConfig } from "./server-config";
+import { cancelConstruction, startConstruction } from "../construction";
+import { runSimulationTicks } from "../simulation";
 
 type ApiDependencies = {
   listBlueprintCatalog?: typeof listBlueprintCatalog;
@@ -111,6 +113,57 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   };
   app.post("/inventory/resources/:resourceType", (c) => adjustInventory(c, 1));
   app.delete("/inventory/resources/:resourceType", (c) => adjustInventory(c, -1));
+  app.post("/ticks", async (c) => {
+    try {
+      const { count } = await c.req.json<{ count?: unknown }>();
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+        return c.json({ error: "Tick count must be a positive integer." }, 400);
+      }
+      const modules = readModuleState(cwd);
+      if (!modules) return c.json({ error: 'No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.' }, 400);
+      const solar = await kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig()));
+      const result = runSimulationTicks({
+        moduleState: modules,
+        simulationState: readSimulationState(cwd) ?? { currentTick: 0 },
+        tickCount: count,
+        solarIrradianceWPerM2: solar.solarIrradiance.wPerM2,
+        constructionState: readConstructionState(cwd),
+      });
+      writeModuleState(result.moduleState, cwd);
+      writeSimulationState(result.simulationState, cwd);
+      writeConstructionState(result.constructionState, cwd);
+      return c.json({ ...result, solarIrradiance: solar.solarIrradiance });
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
+  app.post("/construction/jobs", async (c) => {
+    try {
+      const { blueprintId } = await c.req.json<{ blueprintId?: string }>();
+      if (!blueprintId) return c.json({ error: "Blueprint id is required." }, 400);
+      const modules = readModuleState(cwd);
+      if (!modules) return c.json({ error: 'No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.' }, 400);
+      const started = startConstruction(
+        await getBlueprint(loadKeplerConfig(), blueprintId),
+        modules,
+        readInventoryState(cwd) ?? { resources: {} },
+        readConstructionState(cwd),
+      );
+      writeModuleState(started.moduleState, cwd);
+      writeInventoryState(started.inventoryState, cwd);
+      writeConstructionState(started.constructionState, cwd);
+      return c.json(started, 201);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
+  app.post("/construction/jobs/:facilityId/cancel", async (c) => {
+    try {
+      const facilityId = c.req.param("facilityId");
+      const modules = readModuleState(cwd);
+      if (!modules) return c.json({ error: 'No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.' }, 400);
+      const cancelled = cancelConstruction(modules, readConstructionState(cwd), facilityId);
+      writeModuleState(cancelled.moduleState, cwd);
+      writeConstructionState(cancelled.constructionState, cwd);
+      return c.json(cancelled);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
   app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getOneBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/resources", async (c) => { try { log("GET /catalog/resources -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
