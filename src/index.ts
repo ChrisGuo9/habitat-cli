@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { randomUUID } from "node:crypto";
-import { loadKeplerConfig } from "./config";
 import { getBlueprintViaApi as getBlueprint, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, apiRequest } from "./api/client";
 import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
@@ -301,8 +299,27 @@ constructionCommand
   });
 
 const moduleCommand = program.command("module").description("manage local habitat modules");
+const powerCommand = program.command("power").description("inspect local habitat power");
 registerCatalogCommands(program);
 registerInventoryCommands(program);
+
+powerCommand
+  .command("overview")
+  .description("show current power draw and stored energy")
+  .action(() => {
+    try {
+      const summary = summarizeModuleStatus(buildModuleStatusRows(listModuleReferences()));
+      printSection("Power Overview", [
+        ["totalPowerDrawKw", String(summary.totalPowerDrawKw)],
+        ["tickEnergyKwh", String(summary.tickEnergyKwh)],
+        ["storedEnergyKwh", String(summary.storedEnergyKwh)],
+        ["batteryCapacityKwh", String(summary.batteryCapacityKwh)],
+        ["powerAvailability", summary.storedEnergyKwh > 0 ? "available" : "unavailable"],
+      ]);
+    } catch (error) {
+      exitWithError(error);
+    }
+  });
 
 moduleCommand
   .command("list")

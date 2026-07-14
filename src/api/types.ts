@@ -3,6 +3,7 @@ import type {
   HabitatInventoryState,
   HabitatModuleState,
   HabitatRegistration,
+  HabitatSimulationState,
 } from "../state";
 import type {
   KeplerBlueprint,
@@ -16,6 +17,7 @@ export type ApiState = {
   modules: HabitatModuleState | null;
   inventory: HabitatInventoryState | null;
   construction: HabitatConstructionState | null;
+  simulation: HabitatSimulationState | null;
 };
 
 export type ApiCatalog = KeplerBlueprintCatalogResponse | KeplerResourceCatalogResponse;

@@ -1,14 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { apiRequestSync } from "./api/client";
 import type { HabitatConstructionState, HabitatInventoryState, HabitatModuleState, HabitatRegistration, HabitatSimulationState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "./state";
 import type { KeplerStarterModule } from "./kepler";
 
-const base = () => (process.env.HABITAT_API_BASE_URL ?? "http://localhost:8787").replace(/\/$/, "");
 function request<T>(path: string, method = "GET", body?: unknown): T {
-  const args = ["-sS", "-X", method, `${base()}${path}`];
-  if (body !== undefined) args.push("-H", "Content-Type: application/json", "--data", JSON.stringify(body));
-  const result = spawnSync("curl", args, { encoding: "utf8" });
-  if (result.status !== 0) throw new Error(result.stderr.trim() || "Unable to reach Habitat API. Start it with `bun run server`.");
-  return JSON.parse(result.stdout) as T;
+  return apiRequestSync<T>(path, method, body);
 }
 type State = { registration: HabitatRegistration | null; modules: HabitatModuleState | null; inventory: HabitatInventoryState | null; construction: HabitatConstructionState | null; simulation?: HabitatSimulationState | null };
 const state = () => request<State>("/state");

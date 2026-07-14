@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import type { ApiBlueprint, ApiSolar, ApiState } from "./types";
 import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse } from "../kepler";
 import type { HabitatInventoryState, HabitatModuleState } from "../state";
@@ -25,6 +26,20 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     throw new Error(message);
   }
   return parsed as T;
+}
+
+export function apiRequestSync<T>(path: string, method = "GET", body?: unknown): T {
+  const args = ["-sS", "-X", method, `${apiBaseUrl()}${path}`];
+  if (body !== undefined) {
+    args.push("-H", "Content-Type: application/json", "--data", JSON.stringify(body));
+  }
+
+  const result = spawnSync("curl", args, { encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "Unable to reach Habitat API. Start it with `bun run server`.");
+  }
+
+  return JSON.parse(result.stdout) as T;
 }
 
 export const getApiState = () => apiRequest<ApiState>("/state");

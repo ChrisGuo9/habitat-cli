@@ -5,16 +5,44 @@ import { join, resolve } from "node:path";
 import { readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState } from "./state";
 
 const cliPath = resolve(import.meta.dir, "index.ts");
+const serverPath = resolve(import.meta.dir, "server.ts");
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-cli-"));
 }
 
 async function runCli(args: string[], cwd: string, env: Record<string, string>) {
+  const server = Bun.spawn({
+    cmd: ["bun", "run", serverPath],
+    cwd,
+    env: { ...process.env, ...env, HABITAT_API_HOST: "127.0.0.1", HABITAT_API_PORT: "8787" },
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+  let ready = false;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:8787/registration");
+      if (response.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // The server may still be starting.
+    }
+    await Bun.sleep(20);
+  }
+
+  if (!ready) {
+    server.kill();
+    throw new Error("Test Habitat API server did not start.");
+  }
+
   const child = Bun.spawn({
     cmd: ["bun", "run", cliPath, ...args],
     cwd,
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...env, HABITAT_API_BASE_URL: "http://127.0.0.1:8787" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -25,6 +53,8 @@ async function runCli(args: string[], cwd: string, env: Record<string, string>) 
     child.exited,
   ]);
 
+  server.kill();
+  await server.exited;
   return { stdout, stderr, exitCode };
 }
 
