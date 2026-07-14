@@ -1,7 +1,6 @@
 import { Command } from "commander";
-import { getBlueprintViaApi as getBlueprint, getCatalog, getResources } from "../api/client";
+import { getApiState, getBlueprintViaApi as getBlueprint, getCatalog, getResources } from "../api/client";
 import { evaluateConstructionReadiness } from "../construction";
-import { readInventoryState, readModuleState, readRegistration } from "../remote-state";
 
 export function registerCatalogCommands(program: Command): void {
   const blueprintCommand = program
@@ -104,14 +103,14 @@ export function registerCatalogCommands(program: Command): void {
     .argument("<blueprint-id>", "blueprint id")
     .action(async (blueprintId: string) => {
       try {
-        const registration = readRegistration();
-        if (!registration) {
+        const registration = await getApiState();
+        if (!registration.registration) {
           throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
         }
 
         const { blueprint } = await getBlueprint(blueprintId);
-        const moduleState = readModuleState();
-        const inventory = readInventoryState() ?? { resources: {} };
+        const moduleState = registration.modules;
+        const inventory = registration.inventory ?? { resources: {} };
 
         if (!moduleState) {
           throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');

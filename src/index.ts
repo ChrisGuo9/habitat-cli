@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { cancelConstructionViaApi, createModuleViaApi, deleteModuleViaApi, getBlueprintViaApi as getBlueprint, getModule as getModuleViaApi, getModuleReferences, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, runTicksViaApi, startConstructionViaApi, updateModuleViaApi, apiRequest } from "./api/client";
+import { apiRequest, cancelConstructionViaApi, createModuleViaApi, deleteModuleViaApi, getApiState, getBlueprintViaApi as getBlueprint, getModule as getModuleViaApi, getModuleReferences, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, runTicksViaApi, startConstructionViaApi, unregisterViaApi, updateModuleViaApi } from "./api/client";
 import { runConstructionDryRun } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
@@ -14,22 +14,6 @@ import {
   resolvePowerDrawKw,
   summarizeModuleStatus,
 } from "./module-status";
-import {
-  hydrateModulesFromRegistration,
-  listModuleReferences,
-  readConstructionState,
-  readInventoryState,
-  readRegistration,
-  readModuleState,
-  removeConstructionState,
-  removeInventoryState,
-  removeModuleState,
-  removeRegistration,
-  removeSimulationState,
-  updateModuleStatus,
-  writeRegistration,
-} from "./remote-state";
-
 const program = new Command();
 
 program
@@ -47,10 +31,10 @@ program
     try {
       const registration = await registerHabitat(options.name);
 
-        printSection("Registration", [
-          ["displayName", options.name],
-          ["habitatId", registration?.habitatId ?? "unknown"],
-          ["habitatUuid", registration?.habitatUuid ?? "unknown"],
+      printSection("Registration", [
+        ["displayName", options.name],
+        ["habitatId", registration?.habitatId ?? "unknown"],
+        ["habitatUuid", registration?.habitatUuid ?? "unknown"],
       ]);
     } catch (error) {
       exitWithError(error);
@@ -69,6 +53,7 @@ program
 
       const response = await apiRequest<{ habitat: { status: string; catalogVersion: string; habitatSlug: string; lastSeenAt?: string | null } }>("/habitat/status");
       const { habitat } = response;
+      const state = await getApiState();
 
       printSection("Habitat Status", [
         ["displayName", registration.displayName],
@@ -78,7 +63,7 @@ program
         ["catalogVersion", habitat.catalogVersion],
         ["habitatSlug", habitat.habitatSlug],
         ["lastSeenAt", habitat.lastSeenAt ?? "never"],
-        ["modules", String(readModuleState()?.modules.length ?? 0)],
+        ["modules", String(state.modules?.modules.length ?? 0)],
       ]);
     } catch (error) {
       exitWithError(error);
@@ -88,19 +73,14 @@ program
 program
   .command("unregister")
   .description("remove the local habitat registration")
-  .action(() => {
+  .action(async () => {
     try {
-      const registration = readRegistration();
+      const registration = await getRegistration();
       if (!registration) {
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      removeRegistration();
-      removeModuleState();
-      removeSimulationState();
-      removeInventoryState();
-      removeConstructionState();
-
+      await unregisterViaApi();
       console.log(`Removed local habitat registration for ${registration.displayName}`);
     } catch (error) {
       exitWithError(error);
@@ -131,7 +111,7 @@ program
   .action(async (count: string) => {
     try {
       const tickCount = parseTickCount(count);
-      const registration = readRegistration();
+      const registration = await getRegistration();
       if (!registration) {
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
@@ -178,18 +158,19 @@ program
   .option("--dry-run", "show whether construction can start without changing state")
   .action(async (blueprintId: string, options: { dryRun?: boolean }) => {
     try {
-      const registration = readRegistration();
+      const registration = await getRegistration();
       if (!registration) {
         throw new Error('No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
       const { blueprint } = await getBlueprint(blueprintId);
-      const moduleState = readModuleState();
+      const state = await getApiState();
+      const moduleState = state.modules;
       if (!moduleState) {
         throw new Error('No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.');
       }
 
-      const inventory = readInventoryState() ?? { resources: {} };
+      const inventory = state.inventory ?? { resources: {} };
       if (options.dryRun) {
         const report = runConstructionDryRun(blueprint, moduleState.modules, inventory);
         printConstructionDryRun(report);
@@ -208,9 +189,9 @@ const constructionCommand = program.command("construction").description("inspect
 constructionCommand
   .command("status")
   .description("show active construction jobs")
-  .action(() => {
+  .action(async () => {
     try {
-      const construction = readConstructionState();
+      const { construction, modules } = await getApiState();
       const jobs = construction?.activeJob ? [construction.activeJob] : [];
 
       if (jobs.length === 0) {
@@ -219,7 +200,7 @@ constructionCommand
       }
 
       jobs.forEach((job, index) => {
-        const facility = readModuleState()?.modules.find((module) => module.id === job.facilityModuleId);
+        const facility = modules?.modules.find((module) => module.id === job.facilityModuleId);
         const facilityBusy = Boolean(facility?.runtimeAttributes.busy || facility?.runtimeAttributes.activeJobId);
         printSection(`Construction Job ${index + 1}`, [
           ["blueprintId", job.blueprintId],
@@ -268,9 +249,9 @@ registerInventoryCommands(program);
 powerCommand
   .command("overview")
   .description("show current power draw and stored energy")
-  .action(() => {
+  .action(async () => {
     try {
-      const summary = summarizeModuleStatus(buildModuleStatusRows(listModuleReferences()));
+      const summary = summarizeModuleStatus(buildModuleStatusRows(await getModuleReferences()));
       printSection("Power Overview", [
         ["totalPowerDrawKw", String(summary.totalPowerDrawKw)],
         ["tickEnergyKwh", String(summary.tickEnergyKwh)],
@@ -298,9 +279,9 @@ moduleCommand
 moduleCommand
   .command("status")
   .description("show local habitat module states and current power draw")
-  .action(() => {
+  .action(async () => {
     try {
-      const rows = buildModuleStatusRows(listModuleReferences());
+      const rows = buildModuleStatusRows(await getModuleReferences());
       const summary = summarizeModuleStatus(rows);
       process.stdout.write(formatModuleStatusTable(rows, summary));
     } catch (error) {
@@ -313,23 +294,25 @@ moduleCommand
   .description("set one local habitat module runtime status")
   .argument("<id>", "module id")
   .argument("<status>", "module runtime status")
-  .action((id: string, status: string) => {
+  .action(async (id: string, status: string) => {
     try {
       if (!isDisplayState(status)) {
         throw new Error(invalidStatusMessage(status));
       }
 
-        const module = updateModuleStatus(id, status);
-        if (!module) {
-          throw new Error(`Local module not found: ${id}`);
-        }
+      const module = await updateModuleViaApi(id, {
+        runtimeAttributes: { ...(await getModuleViaApi(id)).runtimeAttributes, status },
+      });
+      if (!module) {
+        throw new Error(`Local module not found: ${id}`);
+      }
 
-        const powerDrawKw = resolvePowerDrawKw(module.runtimeAttributes.status, module.runtimeAttributes.powerDrawKw);
-        printSection("Module Status", [
-          ["moduleId", id],
-          ["status", status],
-          ["powerDrawKw", formatPowerDrawKw(powerDrawKw)],
-        ]);
+      const powerDrawKw = resolvePowerDrawKw(module.runtimeAttributes.status, module.runtimeAttributes.powerDrawKw);
+      printSection("Module Status", [
+        ["moduleId", id],
+        ["status", status],
+        ["powerDrawKw", formatPowerDrawKw(powerDrawKw)],
+      ]);
     } catch (error) {
       exitWithError(error);
     }
