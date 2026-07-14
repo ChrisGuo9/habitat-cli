@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readServerConfig } from "./server-config";
 
 describe("Habitat API server configuration", () => {
-  test("uses remote-access defaults", () => {
+  test("uses localhost defaults", () => {
     expect(readServerConfig({})).toEqual({
-      host: "0.0.0.0",
+      host: "127.0.0.1",
       port: 8787,
     });
   });
