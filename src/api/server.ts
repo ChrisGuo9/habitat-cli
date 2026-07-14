@@ -4,7 +4,7 @@ import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprint
 import { hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, writeInventoryState, writeModuleState, writeRegistration } from "../state";
 import type { HabitatInventoryState, HabitatModuleState } from "../state";
 
-export function createApi(): Hono {
+export function createApi(cwd = process.cwd()): Hono {
   const app = new Hono();
   const log = (message: string) => console.log(`[habitat-api] ${message}`);
   const kepler = async <T>(method: string, path: string, action: () => Promise<T>): Promise<T> => {
@@ -14,7 +14,15 @@ export function createApi(): Hono {
   const jsonError = (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) });
 
   app.get("/registration", (c) => {
-    const registration = readRegistration();
+    const persisted = readRegistration(cwd);
+    const registration = persisted
+      ? {
+          habitatUuid: persisted.habitatUuid,
+          habitatId: persisted.habitatId,
+          displayName: persisted.displayName,
+          apiToken: persisted.tokenSource,
+        }
+      : null;
     log(`GET /registration -> ${registration ? "registered" : "not registered"}`);
     return c.json({ registration });
   });
