@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { getBlueprintViaApi as getBlueprint, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, apiRequest } from "./api/client";
+import { createModuleViaApi, deleteModuleViaApi, getBlueprintViaApi as getBlueprint, getModule as getModuleViaApi, getModuleReferences, getRegistration, getSolarViaApi as getSolarIrradiance, registerViaApi as registerHabitat, updateModuleViaApi, apiRequest } from "./api/client";
 import { cancelConstruction, runConstructionDryRun, startConstruction } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
@@ -16,8 +16,6 @@ import {
 } from "./module-status";
 import { runSimulationTicks } from "./simulation";
 import {
-  createModule,
-  deleteModule,
   getModuleReference,
   hydrateModulesFromRegistration,
   listModuleReferences,
@@ -31,7 +29,6 @@ import {
   removeModuleState,
   removeRegistration,
   removeSimulationState,
-  updateModule,
   updateModuleStatus,
   writeConstructionState,
   writeInventoryState,
@@ -324,9 +321,10 @@ powerCommand
 moduleCommand
   .command("list")
   .description("list local habitat modules")
-  .action(() => {
+  .action(async () => {
     try {
-      printTable(["ALIAS", "BLUEPRINT", "DISPLAY NAME"], listModuleReferences().map(({ alias, module }) => [alias, module.blueprintId, module.displayName]));
+      const references = await getModuleReferences();
+      printTable(["ALIAS", "BLUEPRINT", "DISPLAY NAME"], references.map(({ alias, module }) => [alias, module.blueprintId, module.displayName]));
     } catch (error) {
       exitWithError(error);
     }
@@ -376,14 +374,12 @@ moduleCommand
   .command("show")
   .description("show one local habitat module")
   .argument("<id>", "module id")
-  .action((id: string) => {
+  .action(async (id: string) => {
     try {
-      const reference = getModuleReference(id);
-      if (!reference) {
-        throw new Error(`Local module not found: ${id}`);
-      }
-
-      printModule(reference.alias, reference.module, listModuleReferences());
+      const module = await getModuleViaApi(id);
+      const references = await getModuleReferences();
+      const reference = references.find(({ module: candidate }) => candidate.id === module.id);
+      printModule(reference?.alias ?? id, module, references);
     } catch (error) {
       exitWithError(error);
     }
@@ -398,7 +394,7 @@ moduleCommand
   .option("--capability <capability>", "module capability", collectValues, [])
   .option("--runtime-attribute <key=value>", "runtime attribute entry", collectValues, [])
   .action(
-    (options: {
+    async (options: {
       blueprintId: string;
       name: string;
       connectTo: string[];
@@ -406,7 +402,7 @@ moduleCommand
       runtimeAttribute: string[];
     }) => {
       try {
-        const module = createModule({
+        const module = await createModuleViaApi({
           blueprintId: options.blueprintId,
           displayName: options.name,
           connectedTo: options.connectTo,
@@ -415,7 +411,7 @@ moduleCommand
         });
 
         printSection("Created Module", [
-          ["alias", getModuleReference(module.id)?.alias ?? "unknown"],
+          ["alias", (await getModuleReferences()).find(({ module: candidate }) => candidate.id === module.id)?.alias ?? "unknown"],
           ["id", module.id],
         ]);
       } catch (error) {
@@ -434,7 +430,7 @@ moduleCommand
   .option("--capability <capability>", "module capability", collectValues)
   .option("--runtime-attribute <key=value>", "runtime attribute entry", collectValues)
   .action(
-    (
+    async (
       id: string,
       options: {
         blueprintId?: string;
@@ -445,7 +441,7 @@ moduleCommand
       },
     ) => {
       try {
-        const module = updateModule(
+        const module = await updateModuleViaApi(
           id,
           {
             blueprintId: options.blueprintId,
@@ -473,11 +469,9 @@ moduleCommand
   .command("delete")
   .description("delete a local habitat module")
   .argument("<id>", "module id")
-  .action((id: string) => {
+  .action(async (id: string) => {
     try {
-      if (!deleteModule(id)) {
-        throw new Error(`Local module not found: ${id}`);
-      }
+      await deleteModuleViaApi(id);
 
       printSection("Deleted Module", [["id", id]]);
     } catch (error) {

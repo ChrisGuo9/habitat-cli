@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./server";
-import { writeRegistration } from "../state";
+import { readModuleState, writeModuleState, writeRegistration } from "../state";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-api-"));
@@ -110,6 +110,52 @@ describe("Habitat API", () => {
       expect(await blueprintShow.json()).toMatchObject({ blueprint: { blueprintId: "test-blueprint" } });
       expect(await resources.json()).toEqual({ catalogVersion: "catalog-test", resources: [] });
       expect(await solar.json()).toEqual({ solarIrradiance: { wPerM2: 900, condition: "clear" } });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("module resource routes reuse the backend module state service", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      writeModuleState({
+        modules: [{
+          id: "module-1",
+          blueprintId: "command-module",
+          displayName: "Command Module",
+          connectedTo: [],
+          runtimeAttributes: { status: "online" },
+          capabilities: ["habitat-command"],
+        }],
+        blueprints: [],
+      }, cwd);
+      const app = createApi(cwd);
+
+      const list = await app.request("http://test/modules");
+      expect(await list.json()).toMatchObject({ modules: [{ id: "module-1" }] });
+
+      const show = await app.request("http://test/modules/module-1");
+      expect(await show.json()).toMatchObject({ id: "module-1", displayName: "Command Module" });
+
+      const created = await app.request("http://test/modules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blueprintId: "sensor-mast", displayName: "Sensor Mast", connectedTo: [], runtimeAttributes: {}, capabilities: [] }),
+      });
+      const createdModule = await created.json() as { id: string };
+      expect(created.status).toBe(201);
+
+      const updated = await app.request(`http://test/modules/${createdModule.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Updated Sensor Mast" }),
+      });
+      expect(await updated.json()).toMatchObject({ id: createdModule.id, displayName: "Updated Sensor Mast" });
+
+      const deleted = await app.request(`http://test/modules/${createdModule.id}`, { method: "DELETE" });
+      expect(await deleted.json()).toEqual({ ok: true });
+      expect(readModuleState(cwd)?.modules).toHaveLength(1);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

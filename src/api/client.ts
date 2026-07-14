@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import type { ApiBlueprint, ApiSolar, ApiState } from "./types";
 import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse } from "../kepler";
-import type { HabitatInventoryState, HabitatModuleState } from "../state";
+import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
+import type { KeplerStarterModule } from "../kepler";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 
@@ -76,6 +77,22 @@ export const getResources = () => apiRequest<KeplerResourceCatalogResponse>("/ca
 export const getBlueprintViaApi = (id: string) => apiRequest<ApiBlueprint>(`/catalog/blueprints/${encodeURIComponent(id)}`);
 export const getSolarViaApi = () => apiRequest<ApiSolar>("/solar/irradiance");
 export const getModules = () => apiRequest<HabitatModuleState | null>("/modules");
+export async function getModuleReferences(): Promise<ModuleReference[]> {
+  const state = await getModules();
+  if (!state) throw new Error("No local module state found.");
+  const counts = new Map<string, number>();
+  const overrides: Record<string, string> = { "basic-battery": "battery", "basic-suitport": "suit", "command-module": "cmd", "life-support": "life", "supply-cache": "cache", "workshop-fabricator": "fab" };
+  return state.modules.map((module) => {
+    const stem = overrides[module.blueprintId] ?? module.blueprintId.replace(/[^a-z0-9-]/gi, "-").toLowerCase().split("-").find(Boolean) ?? "module";
+    const index = (counts.get(stem) ?? 0) + 1;
+    counts.set(stem, index);
+    return { alias: `${stem}-${index}`, module };
+  });
+}
 export const putModules = (state: HabitatModuleState) => apiRequest<HabitatModuleState>("/modules", { method: "PUT", body: JSON.stringify(state) });
+export const getModule = (id: string) => apiRequest<KeplerStarterModule>(`/modules/${encodeURIComponent(id)}`);
+export const createModuleViaApi = (input: LocalModuleInput) => apiRequest<KeplerStarterModule>("/modules", { method: "POST", body: JSON.stringify(input) });
+export const updateModuleViaApi = (id: string, updates: LocalModuleUpdate) => apiRequest<KeplerStarterModule>(`/modules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(updates) });
+export const deleteModuleViaApi = (id: string) => apiRequest<{ ok: true }>(`/modules/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getInventory = () => apiRequest<HabitatInventoryState | null>("/inventory");
 export const putInventory = (state: HabitatInventoryState) => apiRequest<HabitatInventoryState>("/inventory", { method: "PUT", body: JSON.stringify(state) });

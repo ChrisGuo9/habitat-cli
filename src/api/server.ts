@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { loadKeplerConfig } from "../config";
 import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprintCatalog, listResourceCatalog, registerHabitat } from "../kepler";
-import { hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
-import type { HabitatInventoryState, HabitatModuleState } from "../state";
+import { createModule, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
+import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate } from "../state";
 import { readServerConfig } from "./server-config";
 
 type ApiDependencies = {
@@ -64,6 +64,29 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   });
   app.get("/modules", (c) => { const value = readModuleState(cwd); log(`GET /modules -> ${value?.modules.length ?? 0} modules`); return c.json(value); });
   app.put("/modules", async (c) => { const value = await c.req.json<HabitatModuleState>(); writeModuleState(value, cwd); log(`PUT /modules -> ${value.modules.length} modules`); return c.json(value); });
+  app.get("/modules/:id", (c) => {
+    const reference = getModuleReference(c.req.param("id"), cwd);
+    return reference ? c.json(reference.module) : c.json({ error: `Local module not found: ${c.req.param("id")}` }, 404);
+  });
+  app.post("/modules", async (c) => {
+    try {
+      const module = createModule(await c.req.json<LocalModuleInput>(), cwd);
+      return c.json(module, 201);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
+  app.patch("/modules/:id", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const module = updateModule(id, await c.req.json<LocalModuleUpdate>(), cwd);
+      return module ? c.json(module) : c.json({ error: `Local module not found: ${id}` }, 404);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
+  app.delete("/modules/:id", (c) => {
+    const id = c.req.param("id");
+    try {
+      return deleteModule(id, cwd) ? c.json({ ok: true }) : c.json({ error: `Local module not found: ${id}` }, 404);
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
   app.get("/inventory", (c) => c.json(readInventoryState(cwd)));
   app.put("/inventory", async (c) => { const value = await c.req.json<HabitatInventoryState>(); writeInventoryState(value, cwd); return c.json(value); });
   app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
