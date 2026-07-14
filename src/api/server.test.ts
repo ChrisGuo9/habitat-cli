@@ -53,4 +53,29 @@ describe("Habitat API", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  test("DELETE /registration clears backend registration state", async () => {
+    const cwd = makeTempDir();
+
+    try {
+      writeRegistration(
+        {
+          habitatUuid: "11111111-1111-4111-8111-111111111111",
+          habitatId: "habitat-123",
+          displayName: "Artemis Ridge",
+          baseUrl: "https://planet.turingguild.com",
+          tokenSource: "test-api-token",
+        },
+        cwd,
+      );
+
+      const response = await createApi(cwd).request("http://test/registration", { method: "DELETE" });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+      await expect((await createApi(cwd).request("http://test/registration")).json()).resolves.toEqual({ registration: null });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
