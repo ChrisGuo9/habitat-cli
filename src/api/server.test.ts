@@ -191,4 +191,37 @@ describe("Habitat API", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  test("injectable logging records safe API and Kepler summaries", async () => {
+    const cwd = makeTempDir();
+    const logs: string[] = [];
+
+    try {
+      writeRegistration(
+        {
+          habitatUuid: "11111111-1111-4111-8111-111111111111",
+          habitatId: "habitat-123",
+          displayName: "Artemis Ridge",
+          baseUrl: "https://planet.turingguild.com",
+          tokenSource: "secret-habitat-token",
+        },
+        cwd,
+      );
+      const app = createApi(cwd, {
+        logger: (line) => logs.push(line),
+        listBlueprintCatalog: async () => ({ catalogVersion: "catalog-test", blueprints: [] }),
+      });
+
+      await app.request("http://test/registration");
+      await app.request("http://test/catalog/blueprints");
+
+      expect(logs).toContain("[habitat-api] GET /registration -> registered");
+      expect(logs).toContain("[habitat-api] GET /catalog/blueprints -> proxied to Kepler");
+      expect(logs).toContain("[kepler] GET /catalog/blueprints -> 200");
+      expect(logs.join("\n")).not.toContain("secret-habitat-token");
+      expect(logs.join("\n")).not.toContain("Bearer");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });

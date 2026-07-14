@@ -13,6 +13,7 @@ type ApiDependencies = {
   getBlueprint?: typeof getBlueprint;
   listResourceCatalog?: typeof listResourceCatalog;
   getSolarIrradiance?: typeof getSolarIrradiance;
+  logger?: (line: string) => void;
 };
 
 export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {}): Hono {
@@ -21,12 +22,37 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   const getOneBlueprint = dependencies.getBlueprint ?? getBlueprint;
   const listResources = dependencies.listResourceCatalog ?? listResourceCatalog;
   const getSolar = dependencies.getSolarIrradiance ?? getSolarIrradiance;
-  const log = (message: string) => console.log(`[habitat-api] ${message}`);
+  const logger = dependencies.logger ?? console.log;
+  const log = (message: string) => logger(`[habitat-api] ${message}`);
   const kepler = async <T>(method: string, path: string, action: () => Promise<T>, successStatus = 200): Promise<T> => {
-    try { const result = await action(); console.log(`[kepler] ${method} ${path} -> ${successStatus}`); return result; }
-    catch (error) { console.log(`[kepler] ${method} ${path} -> error`); throw error; }
+    try { const result = await action(); logger(`[kepler] ${method} ${path} -> ${successStatus}`); return result; }
+    catch (error) { logger(`[kepler] ${method} ${path} -> error`); throw error; }
   };
   const jsonError = (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) });
+
+  app.use("*", async (c, next) => {
+    await next();
+    const response = c.res;
+    const path = c.req.path;
+    let result = String(response.status);
+
+    if (path === "/registration") {
+      if (c.req.method === "GET") {
+        const body = await response.clone().json() as { registration?: unknown };
+        result = body.registration ? "registered" : "not registered";
+      } else if (response.ok) {
+        result = c.req.method === "DELETE" ? "cleared" : "registered";
+      }
+    } else if (path === "/modules" && c.req.method === "GET") {
+      const body = await response.clone().json() as { modules?: unknown[] | null };
+      result = `${body.modules?.length ?? 0} modules`;
+    } else if (path.startsWith("/catalog/") && response.ok) {
+      result = "proxied to Kepler";
+    }
+
+    log(`${c.req.method} ${path} -> ${result}`);
+    return response;
+  });
 
   app.get("/registration", (c) => {
     const persisted = readRegistration(cwd);
@@ -38,7 +64,6 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
           apiToken: persisted.tokenSource,
         }
       : null;
-    log(`GET /registration -> ${registration ? "registered" : "not registered"}`);
     return c.json({ registration });
   });
   app.post("/registration", async (c) => {
@@ -50,11 +75,10 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       const response = await kepler("POST", "/habitats/register", () => registerHabitat(config, name, habitatUuid), 201);
       writeRegistration({ habitatId: response.habitatId, habitatUuid, displayName: name, baseUrl: config.baseUrl, tokenSource: config.tokenSource }, cwd);
       writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints), cwd);
-      log("POST /registration -> registered");
       return c.json(readRegistration(cwd), 201);
     } catch (error) { return c.json(jsonError(error), 502); }
   });
-  app.delete("/registration", (c) => { removeRegistration(cwd); removeModuleState(cwd); removeSimulationState(cwd); removeInventoryState(cwd); removeConstructionState(cwd); log("DELETE /registration -> cleared"); return c.json({ ok: true }); });
+  app.delete("/registration", (c) => { removeRegistration(cwd); removeModuleState(cwd); removeSimulationState(cwd); removeInventoryState(cwd); removeConstructionState(cwd); return c.json({ ok: true }); });
   app.get("/state", (c) => c.json({ registration: readRegistration(cwd), modules: readModuleState(cwd), inventory: readInventoryState(cwd), construction: readConstructionState(cwd), simulation: readSimulationState(cwd) }));
   app.put("/state", async (c) => {
     const value = await c.req.json<{ modules?: HabitatModuleState | null; inventory?: HabitatInventoryState | null; construction?: unknown | null; simulation?: unknown | null }>();
@@ -64,7 +88,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
     if (value.simulation) writeSimulationState(value.simulation as never, cwd); else if (value.simulation === null) removeSimulationState(cwd);
     return c.json({ ok: true });
   });
-  app.get("/modules", (c) => { const value = readModuleState(cwd); log(`GET /modules -> ${value?.modules.length ?? 0} modules`); return c.json(value); });
+  app.get("/modules", (c) => { const value = readModuleState(cwd); return c.json(value); });
   app.put("/modules", async (c) => { const value = await c.req.json<HabitatModuleState>(); writeModuleState(value, cwd); log(`PUT /modules -> ${value.modules.length} modules`); return c.json(value); });
   app.get("/modules/:id", (c) => {
     const reference = getModuleReference(c.req.param("id"), cwd);
@@ -164,9 +188,9 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       return c.json(cancelled);
     } catch (error) { return c.json(jsonError(error), 400); }
   });
-  app.get("/catalog/blueprints", async (c) => { try { log("GET /catalog/blueprints -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/catalog/blueprints", async (c) => { try { return c.json(await kepler("GET", "/catalog/blueprints", () => listBlueprints(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getOneBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
-  app.get("/catalog/resources", async (c) => { try { log("GET /catalog/resources -> proxied to Kepler"); return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/catalog/resources", async (c) => { try { return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/solar/irradiance", async (c) => { try { return c.json(await kepler("GET", "/world/solar-irradiance", () => getSolar(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   const statusHandler = async (c: Context) => {
     try {
