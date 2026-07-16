@@ -5,7 +5,7 @@ export type ServerConfig = {
 
 export function readServerConfig(env: Record<string, string | undefined> = process.env): ServerConfig {
   return {
-    host: env.HABITAT_API_HOST ?? "127.0.0.1",
+    host: env.HABITAT_API_HOST ?? "0.0.0.0",
     port: Number(env.HABITAT_API_PORT ?? "8787"),
   };
 }

@@ -1,3 +1,4 @@
 .habitat/
 .env
+habitat.sqlite
 node_modules/

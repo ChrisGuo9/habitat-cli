@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { resolve } from "node:path";
 import { loadKeplerConfig } from "../config";
@@ -30,6 +31,12 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
     catch (error) { logger(`[kepler] ${method} ${path} -> error`); throw error; }
   };
   const jsonError = (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) });
+
+  app.use("*", cors({
+    origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
+    allowHeaders: ["Content-Type"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }));
 
   app.use("*", async (c, next) => {
     await next();

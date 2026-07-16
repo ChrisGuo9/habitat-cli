@@ -10,6 +10,21 @@ function makeTempDir(): string {
 }
 
 describe("Habitat API", () => {
+  test("allows the local Vite dashboard to call the API", async () => {
+    const response = await createApi().request("http://test/state", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://127.0.0.1:5173",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "content-type",
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://127.0.0.1:5173");
+    expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Content-Type");
+  });
+
   test("GET /registration returns null when no registration exists", async () => {
     const cwd = makeTempDir();
 
