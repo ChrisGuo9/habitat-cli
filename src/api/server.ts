@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { resolve } from "node:path";
 import { loadKeplerConfig } from "../config";
 import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprintCatalog, listResourceCatalog, registerHabitat } from "../kepler";
 import { createModule, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
@@ -44,8 +45,8 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
         result = c.req.method === "DELETE" ? "cleared" : "registered";
       }
     } else if (path === "/modules" && c.req.method === "GET") {
-      const body = await response.clone().json() as { modules?: unknown[] | null };
-      result = `${body.modules?.length ?? 0} modules`;
+      const body = await response.clone().json().catch(() => null) as { modules?: unknown[] | null } | null;
+      result = `${body?.modules?.length ?? 0} modules`;
     } else if (path.startsWith("/catalog/") && response.ok) {
       result = "proxied to Kepler";
     }
@@ -208,6 +209,20 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
 
 export async function startServer(): Promise<void> {
   const config = readServerConfig();
-  const server = Bun.serve({ hostname: config.host, port: config.port, fetch: createApi().fetch });
+  const api = createApi();
+  const distRoot = resolve(process.cwd(), "dist/web");
+  const server = Bun.serve({
+    hostname: config.host,
+    port: config.port,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
+        const relativePath = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+        const file = Bun.file(resolve(distRoot, relativePath));
+        if (await file.exists()) return new Response(file);
+      }
+      return api.fetch(request);
+    },
+  });
   console.log(`[habitat-api] listening on http://${config.host}:${server.port}`);
 }
