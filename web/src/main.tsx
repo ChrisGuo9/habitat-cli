@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { createApiClient, validateTickCount, type ApiState, type Module, type TickResponse } from "./api";
@@ -32,8 +32,8 @@ function App() {
   useEffect(() => { void load(); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(""); try { await action(); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Habitat API request failed."); } finally { setBusy(false); } };
-  const register = () => { if (name.trim()) void run(async () => { await api.register(name.trim()); setName(""); }); };
-  const unregister = () => { if (window.confirm("Unregister this Habitat? This clears its local registration, modules, and simulation state.")) void run(api.unregister); };
+  const register = () => { if (name.trim()) void run(async () => { await api.register(name.trim()); setName(""); setLastTick(null); setSolar(null); }); };
+  const unregister = () => { if (window.confirm("Unregister this Habitat? This clears its local registration, modules, and simulation state.")) void run(async () => { await api.unregister(); setLastTick(null); setSolar(null); }); };
   const advance = (count: number) => void run(async () => { const result = await api.runTicks(count); setLastTick(result.summary); setSolar(result.solarIrradiance); });
   const custom = () => { const count = validateTickCount(customTicks); if (!count) { setError("Enter a positive whole-number tick count."); return; } advance(count); };
   const registered = Boolean(state?.registration);

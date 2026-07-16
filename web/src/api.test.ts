@@ -2,6 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { createApiClient, validateTickCount, type ApiState } from "./api";
 
 describe("dashboard API client", () => {
+  test("uses the local REST backend by default", () => {
+    const calls: string[] = [];
+    const client = createApiClient(undefined, async (input) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ registration: null, modules: null, inventory: null, construction: null, simulation: null }), { status: 200 });
+    });
+
+    return client.getState().then(() => {
+      expect(calls[0]).toBe("http://127.0.0.1:8787/state");
+    });
+  });
+
   test("validates only positive whole-number tick counts", () => {
     expect(validateTickCount("1")).toBe(1);
     expect(validateTickCount("3600")).toBe(3600);

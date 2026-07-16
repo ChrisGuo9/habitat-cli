@@ -46,7 +46,7 @@ describe("Habitat API", () => {
           habitatUuid: "11111111-1111-4111-8111-111111111111",
           habitatId: "habitat-123",
           displayName: "Artemis Ridge",
-          apiToken: "test-api-token",
+          tokenSource: "test-api-token",
         },
       });
     } finally {

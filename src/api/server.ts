@@ -62,7 +62,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
           habitatUuid: persisted.habitatUuid,
           habitatId: persisted.habitatId,
           displayName: persisted.displayName,
-          apiToken: persisted.tokenSource,
+          tokenSource: persisted.tokenSource,
         }
       : null;
     return c.json({ registration });
