@@ -149,7 +149,7 @@ export function createKeplerClockController(dependencies: ControllerDependencies
     async listenOn(): Promise<void> {
       stopping = false;
       updateClock({ mode: "kepler", connectionState: "disconnected", lastConnectionError: null });
-      await connect();
+      try { await connect(); } catch (error) { recordError(error); throw error; }
     },
     async listenOff(): Promise<void> {
       stopping = true;

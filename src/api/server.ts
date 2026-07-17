@@ -9,6 +9,9 @@ import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, Local
 import { readServerConfig } from "./server-config";
 import { cancelConstruction, startConstruction } from "../construction";
 import { createTickService } from "../tick-service";
+import type { TickService } from "../tick-service";
+import { createKeplerClockController } from "../clock-client";
+import type { ClockTickEvent, KeplerClockController } from "../clock-client";
 
 type ApiDependencies = {
   registerHabitat?: typeof registerHabitat;
@@ -17,6 +20,8 @@ type ApiDependencies = {
   listResourceCatalog?: typeof listResourceCatalog;
   getSolarIrradiance?: typeof getSolarIrradiance;
   scanWorld?: typeof scanWorld;
+  tickService?: TickService;
+  clockController?: KeplerClockController;
   logger?: (line: string) => void;
 };
 
@@ -35,10 +40,11 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
     catch (error) { logger(`[kepler] ${method} ${path} -> error`); throw error; }
   };
   const jsonError = (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) });
-  const tickService = createTickService({
+  const tickService = dependencies.tickService ?? createTickService({
     cwd,
     getSolar: () => kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig())),
   });
+  const clockController = dependencies.clockController ?? createKeplerClockController({ cwd, tickService });
 
   app.use("*", cors({
     origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -163,6 +169,32 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       return c.json(await tickService.runManual(count));
     } catch (error) { return c.json(jsonError(error), 400); }
   });
+  const clockStatus = () => {
+    const state = clockController.status();
+    return { ...state, listening: state.mode === "kepler", manualTicksAllowed: state.mode === "manual" };
+  };
+  app.get("/clock/status", (c) => c.json(clockStatus()));
+  app.post("/clock/listen", async (c) => {
+    try {
+      const { listening } = await c.req.json<{ listening?: unknown }>();
+      if (typeof listening !== "boolean") return c.json({ error: "listening must be true or false." }, 400);
+      if (listening) await clockController.listenOn(); else await clockController.listenOff();
+      return c.json(clockStatus());
+    } catch (error) { return c.json(jsonError(error), 400); }
+  });
+  app.get("/clock/events", (c) => {
+    const encoder = new TextEncoder();
+    let unsubscribe = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        unsubscribe = clockController.subscribe((event: ClockTickEvent) => {
+          controller.enqueue(encoder.encode(`event: planet_tick\ndata: ${JSON.stringify(event)}\n\n`));
+        });
+      },
+      cancel() { unsubscribe(); },
+    });
+    return c.body(stream, 200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  });
   app.post("/construction/jobs", async (c) => {
     try {
       const { blueprintId } = await c.req.json<{ blueprintId?: string }>();
@@ -243,7 +275,9 @@ function parseRangedIntegerQuery(value: string | undefined, minimum: number, max
 
 export async function startServer(): Promise<void> {
   const config = readServerConfig();
-  const api = createApi();
+  const tickService = createTickService();
+  const clockController = createKeplerClockController({ tickService });
+  const api = createApi(process.cwd(), { tickService, clockController });
   const distRoot = resolve(process.cwd(), "dist/web");
   const server = Bun.serve({
     hostname: config.host,
@@ -258,5 +292,15 @@ export async function startServer(): Promise<void> {
       return api.fetch(request);
     },
   });
+  await clockController.start();
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await clockController.shutdown();
+    server.stop(true);
+  };
+  process.once("SIGINT", () => { void shutdown(); });
+  process.once("SIGTERM", () => { void shutdown(); });
   console.log(`[habitat-api] listening on http://${config.host}:${server.port}`);
 }

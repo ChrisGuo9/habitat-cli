@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./server";
+import type { ClockTickEvent } from "../clock-client";
 import { defaultClockState, readClockState, readModuleState, readRegistration, readSimulationState, writeClockState, writeModuleState, writeRegistration } from "../state";
 
 function makeTempDir(): string {
@@ -367,6 +368,47 @@ describe("Habitat API", () => {
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: "Manual ticks are disabled while listening to Kepler. Run `habitat clock listen off` to return to manual mode." });
       expect(readSimulationState(cwd)).toBeNull();
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("clock status and listening routes expose the selected mode through the local API", async () => {
+    const cwd = makeTempDir();
+    const calls: string[] = [];
+    const controller = {
+      status: () => readClockState(cwd),
+      listenOn: async () => { calls.push("on"); writeClockState({ ...readClockState(cwd), mode: "kepler", connectionState: "connecting" }, cwd); },
+      listenOff: async () => { calls.push("off"); writeClockState({ ...readClockState(cwd), mode: "manual", connectionState: "disconnected" }, cwd); },
+      subscribe: () => () => {}, start: async () => {}, shutdown: async () => {}, idle: async () => {},
+    };
+    try {
+      const app = createApi(cwd, { clockController: controller });
+      expect(await (await app.request("http://test/clock/status")).json()).toMatchObject({ mode: "manual", listening: false, manualTicksAllowed: true, connectionState: "disconnected" });
+      expect((await app.request("http://test/clock/listen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listening: true }) })).status).toBe(200);
+      expect(await (await app.request("http://test/clock/status")).json()).toMatchObject({ mode: "kepler", listening: true, manualTicksAllowed: false, connectionState: "connecting" });
+      await app.request("http://test/clock/listen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listening: false }) });
+      expect(calls).toEqual(["on", "off"]);
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("GET /clock/events streams only future safe tick events", async () => {
+    const cwd = makeTempDir();
+    let listener: ((event: ClockTickEvent) => void) | null = null;
+    const controller = {
+      status: () => readClockState(cwd), listenOn: async () => {}, listenOff: async () => {}, start: async () => {}, shutdown: async () => {}, idle: async () => {},
+      subscribe: (next: (event: ClockTickEvent) => void) => { listener = next; return () => { listener = null; }; },
+    };
+    try {
+      const response = await createApi(cwd, { clockController: controller }).request("http://test/clock/events");
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      const reader = response.body!.getReader();
+      listener!({ tick: 900, previousTick: 800, advancedBy: 100, issuedAt: "2026-07-17T14:30:00.000Z", applied: true });
+      const chunk = await reader.read();
+      const text = new TextDecoder().decode(chunk.value);
+      expect(text).toContain("event: planet_tick");
+      expect(text).toContain('"advancedBy":100');
+      expect(text).not.toContain("apiToken");
+      await reader.cancel();
+      expect(listener).toBeNull();
     } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
