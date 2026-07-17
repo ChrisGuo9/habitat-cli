@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./server";
-import { readModuleState, writeModuleState, writeRegistration } from "../state";
+import { readClockState, readModuleState, readRegistration, writeModuleState, writeRegistration } from "../state";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-api-"));
@@ -121,9 +121,93 @@ describe("Habitat API", () => {
           habitatUuid: "11111111-1111-4111-8111-111111111111",
           habitatId: "habitat-123",
           displayName: "Artemis Ridge",
+          baseUrl: "https://planet.turingguild.com",
           tokenSource: "test-api-token",
         },
       });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("POST /registration saves stream credentials and defaults clock listening to off", async () => {
+    const cwd = makeTempDir();
+    const requests: Array<{ displayName: string; habitatUuid: string }> = [];
+    const response = {
+      habitatId: "habitat-123",
+      streamUrl: "wss://planet.turingguild.com/planet/stream",
+      apiToken: "habitat-stream-secret",
+      stream: {
+        protocolVersion: "1.0",
+        subscriptions: ["ticks"] as Array<"ticks">,
+        currentTick: 800,
+        tickIntervalMs: 5000,
+        ticksPerPulse: 1,
+        status: "running" as const,
+      },
+      starterModules: [],
+      blueprints: [],
+    };
+
+    try {
+      const app = createApi(cwd, {
+        registerHabitat: async (_config, displayName, habitatUuid) => {
+          requests.push({ displayName, habitatUuid });
+          return response;
+        },
+      });
+      const registered = await app.request("http://test/registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Artemis Ridge" }),
+      });
+
+      expect(registered.status).toBe(201);
+      expect(readRegistration(cwd)).toMatchObject({
+        habitatId: "habitat-123",
+        streamUrl: response.streamUrl,
+        apiToken: response.apiToken,
+        stream: response.stream,
+      });
+      expect(readClockState(cwd)).toMatchObject({ mode: "manual", connectionState: "disconnected" });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.displayName).toBe("Artemis Ridge");
+      expect(requests[0]?.habitatUuid).toMatch(/^[0-9a-f-]{36}$/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("POST /registration reuses the saved UUID when upgrading a legacy registration", async () => {
+    const cwd = makeTempDir();
+    const habitatUuid = "11111111-1111-4111-8111-111111111111";
+    let requestedUuid = "";
+
+    try {
+      writeRegistration({ habitatUuid, habitatId: "habitat-legacy", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      const app = createApi(cwd, {
+        registerHabitat: async (_config, _displayName, uuid) => {
+          requestedUuid = uuid;
+          return {
+            habitatId: "habitat-legacy",
+            streamUrl: "wss://planet.turingguild.com/planet/stream",
+            apiToken: "upgraded-stream-secret",
+            stream: { protocolVersion: "1.0", subscriptions: ["ticks"], currentTick: 900, tickIntervalMs: 5000, ticksPerPulse: 1, status: "running" },
+            starterModules: [],
+            blueprints: [],
+          };
+        },
+      });
+
+      const registered = await app.request("http://test/registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Artemis Ridge" }),
+      });
+
+      expect(registered.status).toBe(201);
+      expect(requestedUuid).toBe(habitatUuid);
+      expect(readRegistration(cwd)?.habitatUuid).toBe(habitatUuid);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

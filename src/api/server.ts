@@ -4,13 +4,14 @@ import type { Context } from "hono";
 import { resolve } from "node:path";
 import { loadKeplerConfig } from "../config";
 import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprintCatalog, listResourceCatalog, registerHabitat, scanWorld } from "../kepler";
-import { createModule, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
+import { createModule, defaultClockState, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeClockState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeClockState, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate } from "../state";
 import { readServerConfig } from "./server-config";
 import { cancelConstruction, startConstruction } from "../construction";
 import { runSimulationTicks } from "../simulation";
 
 type ApiDependencies = {
+  registerHabitat?: typeof registerHabitat;
   listBlueprintCatalog?: typeof listBlueprintCatalog;
   getBlueprint?: typeof getBlueprint;
   listResourceCatalog?: typeof listResourceCatalog;
@@ -21,6 +22,7 @@ type ApiDependencies = {
 
 export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {}): Hono {
   const app = new Hono();
+  const register = dependencies.registerHabitat ?? registerHabitat;
   const listBlueprints = dependencies.listBlueprintCatalog ?? listBlueprintCatalog;
   const getOneBlueprint = dependencies.getBlueprint ?? getBlueprint;
   const listResources = dependencies.listResourceCatalog ?? listResourceCatalog;
@@ -65,30 +67,31 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   });
 
   app.get("/registration", (c) => {
-    const persisted = readRegistration(cwd);
-    const registration = persisted
-      ? {
-          habitatUuid: persisted.habitatUuid,
-          habitatId: persisted.habitatId,
-          displayName: persisted.displayName,
-          tokenSource: persisted.tokenSource,
-        }
-      : null;
-    return c.json({ registration });
+    return c.json({ registration: readRegistration(cwd) });
   });
   app.post("/registration", async (c) => {
     try {
       const { name } = await c.req.json<{ name?: string }>();
       if (!name) return c.json({ error: "Registration name is required." }, 400);
       const config = loadKeplerConfig();
-      const habitatUuid = crypto.randomUUID();
-      const response = await kepler("POST", "/habitats/register", () => registerHabitat(config, name, habitatUuid), 201);
-      writeRegistration({ habitatId: response.habitatId, habitatUuid, displayName: name, baseUrl: config.baseUrl, tokenSource: config.tokenSource }, cwd);
+      const habitatUuid = readRegistration(cwd)?.habitatUuid ?? crypto.randomUUID();
+      const response = await kepler("POST", "/habitats/register", () => register(config, name, habitatUuid), 201);
+      writeRegistration({
+        habitatId: response.habitatId,
+        habitatUuid,
+        displayName: name,
+        baseUrl: config.baseUrl,
+        tokenSource: config.tokenSource,
+        streamUrl: response.streamUrl,
+        apiToken: response.apiToken,
+        stream: response.stream,
+      }, cwd);
+      writeClockState(defaultClockState(), cwd);
       writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints), cwd);
       return c.json(readRegistration(cwd), 201);
     } catch (error) { return c.json(jsonError(error), 502); }
   });
-  app.delete("/registration", (c) => { removeRegistration(cwd); removeModuleState(cwd); removeSimulationState(cwd); removeInventoryState(cwd); removeConstructionState(cwd); return c.json({ ok: true }); });
+  app.delete("/registration", (c) => { removeRegistration(cwd); removeClockState(cwd); removeModuleState(cwd); removeSimulationState(cwd); removeInventoryState(cwd); removeConstructionState(cwd); return c.json({ ok: true }); });
   app.get("/state", (c) => c.json({ registration: readRegistration(cwd), modules: readModuleState(cwd), inventory: readInventoryState(cwd), construction: readConstructionState(cwd), simulation: readSimulationState(cwd) }));
   app.put("/state", async (c) => {
     const value = await c.req.json<{ modules?: HabitatModuleState | null; inventory?: HabitatInventoryState | null; construction?: unknown | null; simulation?: unknown | null }>();

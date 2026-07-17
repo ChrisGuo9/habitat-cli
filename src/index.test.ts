@@ -75,6 +75,18 @@ beforeAll(() => {
           return Response.json(
             {
               habitatId: "habitat_11111111_1111_4111_8111_111111111111",
+              streamUrl: "wss://planet.turingguild.com/planet/stream",
+              apiToken: "habitat-stream-secret",
+              stream: {
+                protocolVersion: "1.0",
+                subscriptions: ["ticks"],
+                currentTick: 800,
+                tickIntervalMs: 5000,
+                ticksPerPulse: 1,
+                status: "running",
+              },
+              contracts: { alerts: { schemaVersion: "1.0", schema: {} } },
+              starterHumans: [],
               starterModules: [
                 {
                   id: "starter-command-1",
