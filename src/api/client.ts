@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { ApiBlueprint, ApiSolar, ApiState } from "./types";
+import type { ApiBlueprint, ApiClockEvent, ApiClockStatus, ApiSolar, ApiState } from "./types";
 import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse, WorldScanResponse } from "../kepler";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
 import type { KeplerStarterModule } from "../kepler";
@@ -115,3 +115,44 @@ export const removeInventory = (resourceType: string, quantity: number) => apiRe
 export const runTicksViaApi = (count: number) => apiRequest<SimulationResult & { solarIrradiance: { wPerM2: number; condition: string } }>("/ticks", { method: "POST", body: JSON.stringify({ count }) });
 export const startConstructionViaApi = (blueprintId: string) => apiRequest<ConstructionStartResult>("/construction/jobs", { method: "POST", body: JSON.stringify({ blueprintId }) });
 export const cancelConstructionViaApi = (facilityId: string) => apiRequest<ConstructionCancellationResult>(`/construction/jobs/${encodeURIComponent(facilityId)}/cancel`, { method: "POST" });
+export const getClockStatus = (fetchImplementation: typeof fetch = fetch) => apiRequest<ApiClockStatus>("/clock/status", {}, fetchImplementation);
+export const setClockListening = (listening: boolean, fetchImplementation: typeof fetch = fetch) => apiRequest<ApiClockStatus>("/clock/listen", { method: "POST", body: JSON.stringify({ listening }) }, fetchImplementation);
+
+export async function watchClockEvents(
+  onEvent: (event: ApiClockEvent) => void,
+  signal?: AbortSignal,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetchImplementation(`${apiBaseUrl()}/clock/events`, { signal, headers: { Accept: "text/event-stream" } });
+  } catch (error) {
+    if (signal?.aborted) return;
+    throw new Error("GET /clock/events could not connect to the Habitat API. Start it with `bun run server`.");
+  }
+  if (!response.ok || !response.body) throw new Error(`GET /clock/events failed (${response.status}).`);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const record = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const lines = record.split("\n");
+        if (lines.some((line) => line === "event: planet_tick")) {
+          const data = lines.find((line) => line.startsWith("data: "))?.slice(6);
+          if (data) onEvent(JSON.parse(data) as ApiClockEvent);
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

@@ -807,6 +807,19 @@ describe("habitat cli", () => {
     }
   });
 
+  test("clock status reports manual mode before listening is enabled", async () => {
+    const cwd = makeTempDir();
+    try {
+      const result = await runCli(["clock", "status"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Clock Status");
+      expect(result.stdout).toContain("manual");
+      expect(result.stdout).toContain("off");
+      expect(result.stdout).toContain("manualTicksAllowed");
+      expect(result.stdout).toContain("true");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
   test("scan prints every probability and a ranged quantity estimate for one tile", async () => {
     const cwd = makeTempDir();
     try {
@@ -951,6 +964,10 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("2026-06-24");
       expect(result.stdout).toContain("modules");
       expect(result.stdout).toContain("6");
+      expect(result.stdout).toContain("wss://planet.turingguild.com/planet/stream");
+      expect(result.stdout).toContain("habitat-stream-secret");
+      expect(result.stdout).toContain("protocolVersion");
+      expect(result.stdout).toContain("ticksPerPulse");
       expect(requests).toEqual([
         {
           method: "GET",
@@ -961,6 +978,19 @@ describe("habitat cli", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("status JSON exposes stable saved stream credential fields", async () => {
+    const cwd = makeTempDir();
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const result = await runCli(["--json", "status"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(result.exitCode).toBe(0);
+      const output = JSON.parse(result.stdout);
+      expect(output.registration).toMatchObject({ streamUrl: "wss://planet.turingguild.com/planet/stream", apiToken: "habitat-stream-secret", stream: { protocolVersion: "1.0", subscriptions: ["ticks"], currentTick: 800, tickIntervalMs: 5000, ticksPerPulse: 1, status: "running" } });
+      expect(output.habitat).toMatchObject({ status: "online" });
+      expect(output.modules).toBe(6);
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
   test("module list shows the hydrated starter modules", async () => {

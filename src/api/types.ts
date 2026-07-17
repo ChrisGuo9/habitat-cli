@@ -1,10 +1,12 @@
 import type {
+  HabitatClockState,
   HabitatConstructionState,
   HabitatInventoryState,
   HabitatModuleState,
   HabitatRegistration,
   HabitatSimulationState,
 } from "../state";
+import type { ClockTickEvent } from "../clock-client";
 import type {
   KeplerBlueprint,
   KeplerBlueprintCatalogResponse,
@@ -23,3 +25,5 @@ export type ApiState = {
 export type ApiCatalog = KeplerBlueprintCatalogResponse | KeplerResourceCatalogResponse;
 export type ApiBlueprint = { blueprint: KeplerBlueprint };
 export type ApiSolar = SolarIrradianceResponse;
+export type ApiClockStatus = HabitatClockState & { listening: boolean; manualTicksAllowed: boolean };
+export type ApiClockEvent = ClockTickEvent;

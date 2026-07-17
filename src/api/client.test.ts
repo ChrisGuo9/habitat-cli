@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { apiBaseUrl, apiRequest, scanWorldViaApi } from "./client";
+import { apiBaseUrl, apiRequest, getClockStatus, scanWorldViaApi, setClockListening, watchClockEvents } from "./client";
 import type { WorldScanResponse } from "../kepler";
 
 describe("Habitat API client", () => {
@@ -62,5 +62,25 @@ describe("Habitat API client", () => {
       );
     } finally {
     }
+  });
+
+  test("clock helpers use only the local Habitat API", async () => {
+    const requests: Request[] = [];
+    const status = { mode: "manual" as const, listening: false, manualTicksAllowed: true, connectionState: "disconnected" as const, lastKeplerTick: null, lastAdvancedBy: null, lastConnectedAt: null, lastMessageAt: null, lastConnectionError: null };
+    const testFetch = (async (input: RequestInfo | URL, init?: RequestInit) => { requests.push(new Request(input, init)); return Response.json(status); }) as typeof fetch;
+    await getClockStatus(testFetch);
+    await setClockListening(true, testFetch);
+    expect(requests.map((request) => [new URL(request.url).pathname, request.method])).toEqual([["/clock/status", "GET"], ["/clock/listen", "POST"]]);
+    expect(await requests[1]!.json()).toEqual({ listening: true });
+  });
+
+  test("watchClockEvents parses safe SSE records split across chunks", async () => {
+    const event = { tick: 900, previousTick: 800, advancedBy: 100, issuedAt: "2026-07-17T14:30:00.000Z", applied: true };
+    const source = `event: planet_tick\ndata: ${JSON.stringify(event)}\n\n`;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(source.slice(0, 25))); controller.enqueue(new TextEncoder().encode(source.slice(25))); controller.close(); } });
+    const received: unknown[] = [];
+    const testFetch = (async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })) as unknown as typeof fetch;
+    await watchClockEvents((value) => received.push(value), undefined, testFetch);
+    expect(received).toEqual([event]);
   });
 });

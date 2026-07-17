@@ -6,6 +6,7 @@ import { runConstructionDryRun } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
 import { registerScanCommand } from "./commands/scan";
+import { registerClockCommands } from "./commands/clock";
 import {
   buildModuleStatusRows,
   formatModuleStatusTable,
@@ -22,6 +23,8 @@ program
   .description("Register a local habitat with Kepler and inspect its registration status.")
   .version("0.1.0", "-v, --version", "show the current version")
   .showSuggestionAfterError(false)
+  .option("--json", "print machine-readable JSON")
+  .option("--jsonl", "print machine-readable JSON Lines for streaming commands")
   .helpOption("-h, --help", "show help");
 
 program
@@ -56,6 +59,11 @@ program
       const { habitat } = response;
       const state = await getApiState();
 
+      if (program.opts<{ json?: boolean }>().json) {
+        console.log(JSON.stringify({ registration, habitat, modules: state.modules?.modules.length ?? 0 }));
+        return;
+      }
+
       printSection("Habitat Status", [
         ["displayName", registration.displayName],
         ["habitatId", registration.habitatId],
@@ -65,6 +73,14 @@ program
         ["habitatSlug", habitat.habitatSlug],
         ["lastSeenAt", habitat.lastSeenAt ?? "never"],
         ["modules", String(state.modules?.modules.length ?? 0)],
+        ["streamUrl", registration.streamUrl ?? "not available"],
+        ["apiToken", registration.apiToken ?? "not available"],
+        ["protocolVersion", registration.stream?.protocolVersion ?? "not available"],
+        ["subscriptions", registration.stream?.subscriptions.join(", ") ?? "not available"],
+        ["registrationCurrentTick", registration.stream ? String(registration.stream.currentTick) : "not available"],
+        ["tickIntervalMs", registration.stream ? String(registration.stream.tickIntervalMs) : "not available"],
+        ["ticksPerPulse", registration.stream ? String(registration.stream.ticksPerPulse) : "not available"],
+        ["registrationClockStatus", registration.stream?.status ?? "not available"],
       ]);
     } catch (error) {
       exitWithError(error);
@@ -246,6 +262,7 @@ const moduleCommand = program.command("module").description("manage local habita
 const powerCommand = program.command("power").description("inspect local habitat power");
 registerCatalogCommands(program);
 registerScanCommand(program);
+registerClockCommands(program);
 registerInventoryCommands(program);
 
 powerCommand
