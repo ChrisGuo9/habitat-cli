@@ -54,8 +54,20 @@ export type KeplerStarterModule = {
 
 export type KeplerRegistrationResponse = {
   habitatId: string;
+  streamUrl: string;
+  apiToken: string;
+  stream: KeplerStreamMetadata;
   starterModules: KeplerStarterModule[];
   blueprints: KeplerBlueprint[];
+};
+
+export type KeplerStreamMetadata = {
+  protocolVersion: string;
+  subscriptions: Array<"ticks">;
+  currentTick: number;
+  tickIntervalMs: number;
+  ticksPerPulse: number;
+  status: "paused" | "running";
 };
 
 export type KeplerHabitat = {

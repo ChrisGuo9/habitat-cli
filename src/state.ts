@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
-import type { KeplerBlueprint, KeplerStarterModule } from "./kepler";
+import type { KeplerBlueprint, KeplerStarterModule, KeplerStreamMetadata } from "./kepler";
 
 export type HabitatRegistration = {
   habitatId: string;
@@ -9,6 +9,19 @@ export type HabitatRegistration = {
   displayName: string;
   baseUrl: string;
   tokenSource: string;
+  streamUrl?: string;
+  apiToken?: string;
+  stream?: KeplerStreamMetadata;
+};
+
+export type HabitatClockState = {
+  mode: "manual" | "kepler";
+  connectionState: "disconnected" | "connecting" | "connected" | "error";
+  lastKeplerTick: number | null;
+  lastAdvancedBy: number | null;
+  lastConnectedAt: string | null;
+  lastMessageAt: string | null;
+  lastConnectionError: string | null;
 };
 
 export type HabitatModuleState = {
@@ -117,6 +130,30 @@ export function writeRegistration(registration: HabitatRegistration, cwd = proce
 
 export function removeRegistration(cwd = process.cwd()): void {
   removeState("registration", cwd);
+}
+
+export function defaultClockState(): HabitatClockState {
+  return {
+    mode: "manual",
+    connectionState: "disconnected",
+    lastKeplerTick: null,
+    lastAdvancedBy: null,
+    lastConnectedAt: null,
+    lastMessageAt: null,
+    lastConnectionError: null,
+  };
+}
+
+export function readClockState(cwd = process.cwd()): HabitatClockState {
+  return readState<HabitatClockState>("clock", cwd) ?? defaultClockState();
+}
+
+export function writeClockState(state: HabitatClockState, cwd = process.cwd()): void {
+  writeState("clock", state, cwd);
+}
+
+export function removeClockState(cwd = process.cwd()): void {
+  removeState("clock", cwd);
 }
 
 export function readModuleState(cwd = process.cwd()): HabitatModuleState | null {

@@ -11,14 +11,17 @@ import {
   readModuleState,
   readRegistration,
   readConstructionState,
+  readClockState,
   removeModuleState,
   readInventoryState,
   removeRegistration,
   removeInventoryState,
   removeConstructionState,
+  removeClockState,
   updateModule,
   writeInventoryState,
   writeConstructionState,
+  writeClockState,
   writeModuleState,
   writeRegistration,
 } from "./state";
@@ -39,6 +42,16 @@ describe("habitat state", () => {
           displayName: "Artemis Ridge",
           baseUrl: "https://planet.turingguild.com",
           tokenSource: "KEPLER_PLANET_TOKEN",
+          streamUrl: "wss://planet.turingguild.com/planet/stream",
+          apiToken: "habitat-stream-secret",
+          stream: {
+            protocolVersion: "1.0",
+            subscriptions: ["ticks"],
+            currentTick: 800,
+            tickIntervalMs: 5000,
+            ticksPerPulse: 1,
+            status: "running",
+          },
         },
         cwd,
       );
@@ -49,9 +62,63 @@ describe("habitat state", () => {
         displayName: "Artemis Ridge",
         baseUrl: "https://planet.turingguild.com",
         tokenSource: "KEPLER_PLANET_TOKEN",
+        streamUrl: "wss://planet.turingguild.com/planet/stream",
+        apiToken: "habitat-stream-secret",
+        stream: {
+          protocolVersion: "1.0",
+          subscriptions: ["ticks"],
+          currentTick: 800,
+          tickIntervalMs: 5000,
+          ticksPerPulse: 1,
+          status: "running",
+        },
       });
       expect(existsSync(join(cwd, "habitat.sqlite"))).toBe(true);
       expect(existsSync(join(cwd, ".habitat", "registration.json"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("defaults legacy habitats to manual clock mode and persists clock observations", () => {
+    const cwd = makeTempDir();
+
+    try {
+      expect(readClockState(cwd)).toEqual({
+        mode: "manual",
+        connectionState: "disconnected",
+        lastKeplerTick: null,
+        lastAdvancedBy: null,
+        lastConnectedAt: null,
+        lastMessageAt: null,
+        lastConnectionError: null,
+      });
+
+      writeClockState(
+        {
+          mode: "kepler",
+          connectionState: "connected",
+          lastKeplerTick: 900,
+          lastAdvancedBy: 100,
+          lastConnectedAt: "2026-07-17T12:00:00.000Z",
+          lastMessageAt: "2026-07-17T12:01:00.000Z",
+          lastConnectionError: null,
+        },
+        cwd,
+      );
+
+      expect(readClockState(cwd)).toEqual({
+        mode: "kepler",
+        connectionState: "connected",
+        lastKeplerTick: 900,
+        lastAdvancedBy: 100,
+        lastConnectedAt: "2026-07-17T12:00:00.000Z",
+        lastMessageAt: "2026-07-17T12:01:00.000Z",
+        lastConnectionError: null,
+      });
+
+      removeClockState(cwd);
+      expect(readClockState(cwd).mode).toBe("manual");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
