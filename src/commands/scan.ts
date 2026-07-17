@@ -3,8 +3,6 @@ import { scanWorldViaApi } from "../api/client";
 import type { WorldScanQuantityEstimate, WorldScanResponse, WorldScanTile } from "../kepler";
 
 type ScanOptions = {
-  x: string;
-  y: string;
   strength: string;
   radius: string;
   json?: boolean;
@@ -14,18 +12,14 @@ export function registerScanCommand(program: Command): void {
   program
     .command("scan")
     .description("scan nearby Kepler tiles for resource probabilities")
-    .requiredOption("--x <integer>", "current x coordinate")
-    .requiredOption("--y <integer>", "current y coordinate")
     .requiredOption("--strength <0-100>", "effective sensor strength")
     .option("--radius <0-5>", "scan radius", "0")
     .option("--json", "print the complete JSON response")
     .action(async (options: ScanOptions) => {
       try {
-        const x = parseInteger(options.x, "x must be an integer.");
-        const y = parseInteger(options.y, "y must be an integer.");
         const sensorStrength = parseRangedInteger(options.strength, 0, 100, "Sensor strength must be an integer from 0 through 100.");
         const radiusTiles = parseRangedInteger(options.radius, 0, 5, "Radius must be an integer from 0 through 5.");
-        const response = await scanWorldViaApi({ x, y, sensorStrength, radiusTiles });
+        const response = await scanWorldViaApi({ sensorStrength, radiusTiles });
 
         if (options.json || program.opts<{ json?: boolean }>().json) console.log(JSON.stringify(response, null, 2));
         else printScan(response);

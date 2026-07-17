@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
-import type { KeplerBlueprint, KeplerStarterModule, KeplerStreamMetadata } from "./kepler";
+import type { KeplerAlertContract, KeplerBlueprint, KeplerStarterHuman, KeplerStarterModule, KeplerStreamMetadata } from "./kepler";
 
 export type HabitatRegistration = {
   habitatId: string;
@@ -36,6 +36,12 @@ export type HabitatSimulationState = {
 export type HabitatInventoryState = {
   resources: Record<string, number>;
 };
+
+export type HabitatHumanState = { humans: KeplerStarterHuman[] };
+export type HabitatExplorationState = { humanId: string; suitportModuleId: string; x: number; y: number; carriedResources: Record<string, number>; maxCapacityKg: number };
+export type HabitatAlertSubject = { type: "human" | "module"; id: string };
+export type HabitatAlert = { id: string; condition: string; severity: string; status: "open" | "acknowledged" | "resolved"; source: string; subject?: HabitatAlertSubject; firstObservedAt: string; lastObservedAt: string; acknowledgedAt?: string; resolvedAt?: string; occurrenceCount: number };
+export type HabitatAlertState = { alerts: HabitatAlert[] };
 
 export type HabitatConstructionJob = {
   blueprintId: string;
@@ -112,6 +118,10 @@ function writeState(key: string, value: unknown, cwd: string): void {
       .query("INSERT INTO habitat_state (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(key, JSON.stringify(value));
   });
+}
+
+function writeStateWithDatabase(database: Database, key: string, value: unknown): void {
+  database.query("INSERT INTO habitat_state (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value));
 }
 
 function removeState(key: string, cwd: string): void {
@@ -202,6 +212,50 @@ export function writeConstructionState(state: HabitatConstructionState, cwd = pr
 
 export function removeConstructionState(cwd = process.cwd()): void {
   removeState("construction", cwd);
+}
+
+export const readHumanState = (cwd = process.cwd()) => readState<HabitatHumanState>("humans", cwd);
+export const writeHumanState = (state: HabitatHumanState, cwd = process.cwd()) => writeState("humans", state, cwd);
+export const removeHumanState = (cwd = process.cwd()) => removeState("humans", cwd);
+export const readExplorationState = (cwd = process.cwd()) => readState<HabitatExplorationState>("exploration", cwd);
+export const writeExplorationState = (state: HabitatExplorationState, cwd = process.cwd()) => writeState("exploration", state, cwd);
+export const removeExplorationState = (cwd = process.cwd()) => removeState("exploration", cwd);
+export const readAlertContract = (cwd = process.cwd()) => readState<KeplerAlertContract>("alert-contract", cwd);
+export const writeAlertContract = (state: KeplerAlertContract, cwd = process.cwd()) => writeState("alert-contract", state, cwd);
+export const removeAlertContract = (cwd = process.cwd()) => removeState("alert-contract", cwd);
+export const readAlertState = (cwd = process.cwd()) => readState<HabitatAlertState>("alerts", cwd);
+export const writeAlertState = (state: HabitatAlertState, cwd = process.cwd()) => writeState("alerts", state, cwd);
+export const removeAlertState = (cwd = process.cwd()) => removeState("alerts", cwd);
+
+export function hydrateRegistrationState(input: { registration: HabitatRegistration; modules: HabitatModuleState; humans: HabitatHumanState; alertContract: KeplerAlertContract }, cwd = process.cwd()): void {
+  if (!Array.isArray(input.modules.modules) || !Array.isArray(input.humans.humans)) throw new Error("Registration modules and humans are required.");
+  withDatabase(cwd, (database) => database.transaction(() => {
+    writeStateWithDatabase(database, "registration", input.registration);
+    writeStateWithDatabase(database, "modules", input.modules);
+    writeStateWithDatabase(database, "humans", input.humans);
+    writeStateWithDatabase(database, "alert-contract", input.alertContract);
+    writeStateWithDatabase(database, "alerts", { alerts: [] });
+  })());
+}
+
+export function dockExploration(cwd = process.cwd()): { inventory: HabitatInventoryState; humans: HabitatHumanState } {
+  return withDatabase(cwd, (database) => database.transaction(() => {
+    const get = <T>(key: string): T | null => { const row = database.query("SELECT value FROM habitat_state WHERE key = ?1").get(key) as StateRow | null; return row ? JSON.parse(row.value) as T : null; };
+    const exploration = get<HabitatExplorationState>("exploration");
+    const humans = get<HabitatHumanState>("humans");
+    const inventory = get<HabitatInventoryState>("inventory") ?? { resources: {} };
+    if (!exploration) throw new Error("No human is deployed outside the habitat.");
+    if (exploration.x !== 0 || exploration.y !== 0) throw new Error("Explorer must return to (0, 0) before docking.");
+    if (!humans) throw new Error("No local human state found.");
+    const updatedHumans = { humans: humans.humans.map((human) => human.id === exploration.humanId ? { ...human, locationModuleId: exploration.suitportModuleId } : human) };
+    const resources = { ...inventory.resources };
+    for (const [type, amount] of Object.entries(exploration.carriedResources)) resources[type] = (resources[type] ?? 0) + amount;
+    const updatedInventory = { resources };
+    writeStateWithDatabase(database, "inventory", updatedInventory);
+    writeStateWithDatabase(database, "humans", updatedHumans);
+    database.query("DELETE FROM habitat_state WHERE key = 'exploration'").run();
+    return { inventory: updatedInventory, humans: updatedHumans };
+  })());
 }
 
 export function readOrCreateInventoryState(cwd = process.cwd()): HabitatInventoryState {

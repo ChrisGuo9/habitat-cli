@@ -52,12 +52,27 @@ export type KeplerStarterModule = {
   capabilities: string[];
 };
 
+export type KeplerStarterHuman = {
+  id: string;
+  displayName: string;
+  locationModuleId: string;
+};
+
+export type KeplerAlertContract = {
+  schemaVersion: string;
+  schema: Record<string, unknown>;
+};
+
+export type KeplerRegistrationContracts = { alerts: KeplerAlertContract };
+
 export type KeplerRegistrationResponse = {
   habitatId: string;
   streamUrl: string;
   apiToken: string;
   stream: KeplerStreamMetadata;
+  contracts: KeplerRegistrationContracts;
   starterModules: KeplerStarterModule[];
+  starterHumans: KeplerStarterHuman[];
   blueprints: KeplerBlueprint[];
 };
 
@@ -136,6 +151,13 @@ export type WorldScanInput = {
   radiusTiles: number;
 };
 
+export type WorldSectorResponse = {
+  sector: { id: string; displayName: string; origin: { x: number; y: number }; bounds: { minX: number; maxX: number; minY: number; maxY: number }; tileSizeMeters: number; supportedTerrains: string[] };
+};
+
+export type WorldCollectionInput = { habitatId: string; x: number; y: number; quantityKg: number };
+export type WorldCollectionResponse = { collection: { x: number; y: number; resourceType: string; unit: "kg"; collectedKg: number; remainingKg: number } };
+
 async function keplerRequest<T>(config: KeplerConfig, path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${config.baseUrl}${path}`, {
     ...init,
@@ -186,6 +208,15 @@ export function scanWorld(config: KeplerConfig, input: WorldScanInput) {
     radiusTiles: String(input.radiusTiles),
   });
   return keplerRequest<WorldScanResponse>(config, `/world/scan?${query}`, { method: "GET" });
+}
+
+export function getCurrentWorldSector(config: KeplerConfig, habitatId: string) {
+  const query = new URLSearchParams({ habitatId });
+  return keplerRequest<WorldSectorResponse>(config, `/world/sectors/current?${query}`, { method: "GET" });
+}
+
+export function collectWorldResource(config: KeplerConfig, input: WorldCollectionInput) {
+  return keplerRequest<WorldCollectionResponse>(config, "/world/collect", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function listBlueprintCatalog(config: KeplerConfig) {

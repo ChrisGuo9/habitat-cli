@@ -58,6 +58,15 @@ async function runCli(args: string[], cwd: string, env: Record<string, string>) 
   return { stdout, stderr, exitCode };
 }
 
+async function deployAt(cwd: string, x: number, y: number): Promise<void> {
+  const env = { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" };
+  const deployed = await runCli(["eva", "deploy", "starter-human-1"], cwd, env);
+  if (deployed.exitCode !== 0) throw new Error(deployed.stderr);
+  let currentX = 0; let currentY = 0;
+  while (currentX !== x) { currentX += Math.sign(x - currentX); const result = await runCli(["eva", "move", String(currentX), String(currentY)], cwd, env); if (result.exitCode !== 0) throw new Error(result.stderr); }
+  while (currentY !== y) { currentY += Math.sign(y - currentY); const result = await runCli(["eva", "move", String(currentX), String(currentY)], cwd, env); if (result.exitCode !== 0) throw new Error(result.stderr); }
+}
+
 let server: Bun.Server<undefined>;
 let baseUrl = "";
 const requests: Array<{ method: string; pathname: string; body: string | null }> = [];
@@ -86,7 +95,7 @@ beforeAll(() => {
                 status: "running",
               },
               contracts: { alerts: { schemaVersion: "1.0", schema: {} } },
-              starterHumans: [],
+              starterHumans: [{ id: "starter-human-1", displayName: "Avery", locationModuleId: "starter-basic-suitport-1" }],
               starterModules: [
                 {
                   id: "starter-command-1",
@@ -341,14 +350,18 @@ beforeAll(() => {
                         { resourceType: "water-ice", probabilityPct: 5 },
                         { resourceType: null, probabilityPct: 15 },
                       ],
-                  topCandidate: x === 99 ? { resourceType: null, probabilityPct: 55 } : { resourceType: "ferrite", probabilityPct: exact && distanceTiles === 0 ? 100 : 55 },
-                  quantityEstimate: x === 99 ? null : exact && distanceTiles === 0
+                  topCandidate: x === -1 ? { resourceType: null, probabilityPct: 55 } : { resourceType: "ferrite", probabilityPct: exact && distanceTiles === 0 ? 100 : 55 },
+                  quantityEstimate: x === -1 ? null : exact && distanceTiles === 0
                     ? { resourceType: "ferrite", unit: "kg", estimatedKg: 184, minimumKg: 184, maximumKg: 184, exact: true }
                     : { resourceType: "ferrite", unit: "kg", estimatedKg: 180, minimumKg: 140, maximumKg: 220, exact: false },
                 };
               }),
             },
           });
+        }
+
+        if (url.pathname === "/world/sectors/current" && request.method === "GET") {
+          return Response.json({ sector: { id: "sector-1", displayName: "Test Sector", origin: { x: 0, y: 0 }, bounds: { minX: -25, maxX: 24, minY: -25, maxY: 24 }, tileSizeMeters: 100, supportedTerrains: ["flat"] } });
         }
 
         return new Response("not found", { status: 404 });
@@ -824,7 +837,8 @@ describe("habitat cli", () => {
     const cwd = makeTempDir();
     try {
       await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
-      const result = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await deployAt(cwd, 3, -2);
+      const result = await runCli(["scan", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Resource Scan");
       expect(result.stdout).toContain("position");
@@ -841,7 +855,8 @@ describe("habitat cli", () => {
     const cwd = makeTempDir();
     try {
       await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
-      const result = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "100"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await deployAt(cwd, 3, -2);
+      const result = await runCli(["scan", "--strength", "100"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("100%");
       expect(result.stdout).toContain("184 kg (exact)");
@@ -854,7 +869,8 @@ describe("habitat cli", () => {
     const cwd = makeTempDir();
     try {
       await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
-      const result = await runCli(["scan", "--x", "99", "--y", "-2", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await deployAt(cwd, -1, -2);
+      const result = await runCli(["scan", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("topCandidate     none");
       expect(result.stdout).toContain("quantity      -");
@@ -866,7 +882,8 @@ describe("habitat cli", () => {
     const cwd = makeTempDir();
     try {
       await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
-      const summary = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "1"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      await deployAt(cwd, 3, -2);
+      const summary = await runCli(["scan", "--strength", "60", "--radius", "1"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       expect(summary.exitCode).toBe(0);
       expect(summary.stdout).toContain("COORDINATES");
       expect(summary.stdout).toContain("DISTANCE");
@@ -874,7 +891,7 @@ describe("habitat cli", () => {
       expect(summary.stdout).toContain("2, -3");
       expect(summary.stdout).toContain("4, -1");
 
-      const json = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "1", "--json"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const json = await runCli(["scan", "--strength", "60", "--radius", "1", "--json"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       const parsed = JSON.parse(json.stdout);
       expect(parsed.scan).toMatchObject({ modelVersion: "resource-probability-v2", origin: { x: 3, y: -2 }, sensorStrength: 60, radiusTiles: 1 });
       expect(parsed.scan.tiles).toHaveLength(9);
@@ -886,8 +903,8 @@ describe("habitat cli", () => {
     const cwd = makeTempDir();
     try {
       for (const [args, message] of [
-        [["scan", "--x", "3", "--y", "-2", "--strength", "101"], "Sensor strength must be an integer from 0 through 100."],
-        [["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "6"], "Radius must be an integer from 0 through 5."],
+        [["scan", "--strength", "101"], "Sensor strength must be an integer from 0 through 100."],
+        [["scan", "--strength", "60", "--radius", "6"], "Radius must be an integer from 0 through 5."],
       ] as const) {
         const result = await runCli([...args], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
         expect(result.exitCode).toBe(1);

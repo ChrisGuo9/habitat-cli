@@ -4,13 +4,44 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./server";
 import type { ClockTickEvent } from "../clock-client";
-import { defaultClockState, readClockState, readModuleState, readRegistration, readSimulationState, writeClockState, writeModuleState, writeRegistration } from "../state";
+import { defaultClockState, readClockState, readModuleState, readRegistration, readSimulationState, writeClockState, writeExplorationState, writeModuleState, writeRegistration } from "../state";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-api-"));
 }
 
 describe("Habitat API", () => {
+  test("crew mission routes use persisted humans and explorer position", async () => {
+    const cwd = makeTempDir();
+    const scans: Array<{ x: number; y: number }> = [];
+    try {
+      const state = await import("../state");
+      state.writeRegistration({ habitatId: "hab-crew", habitatUuid: "uuid-crew", displayName: "Crew", baseUrl: "https://planet.turingguild.com", tokenSource: "test" }, cwd);
+      state.writeModuleState({ modules: [
+        { id: "cmd-1", blueprintId: "command-module", displayName: "Command", connectedTo: [], runtimeAttributes: { crewCapacity: 2, status: "online" }, capabilities: [] },
+        { id: "suit-1", blueprintId: "basic-suitport", displayName: "Suitport", connectedTo: [], runtimeAttributes: { crewCapacity: 1, status: "online" }, capabilities: ["suitport-access"] },
+      ], blueprints: [] }, cwd);
+      state.writeHumanState({ humans: [{ id: "human-1", displayName: "Avery", locationModuleId: "cmd-1" }] }, cwd);
+      state.writeAlertState({ alerts: [] }, cwd);
+      const app = createApi(cwd, {
+        getCurrentWorldSector: async () => ({ sector: { id: "sector", displayName: "Sector", origin: { x: 0, y: 0 }, bounds: { minX: -2, maxX: 2, minY: -2, maxY: 2 }, tileSizeMeters: 100, supportedTerrains: ["flat"] } }),
+        scanWorld: async (_config, input) => { scans.push(input); return { scan: { modelVersion: "resource-probability-v2", origin: { x: input.x, y: input.y }, sensorStrength: input.sensorStrength, radiusTiles: input.radiusTiles, tiles: [] } }; },
+        collectWorldResource: async (_config, input) => ({ collection: { x: input.x, y: input.y, resourceType: "ferrite", unit: "kg", collectedKg: input.quantityKg, remainingKg: 9 } }),
+      });
+      expect((await (await app.request("http://test/humans")).json() as any).humans).toHaveLength(1);
+      expect((await app.request("http://test/humans/human-1/location", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ moduleId: "suit-1" }) })).status).toBe(200);
+      expect((await app.request("http://test/eva/deploy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ humanId: "human-1" }) })).status).toBe(201);
+      expect((await app.request("http://test/eva/move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: 1, y: 0 }) })).status).toBe(200);
+      expect((await app.request("http://test/world/scan?sensorStrength=100&radiusTiles=0")).status).toBe(200);
+      expect(scans.at(-1)).toMatchObject({ x: 1, y: 0 });
+      expect((await app.request("http://test/collect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quantityKg: 1 }) })).status).toBe(200);
+      expect(state.readExplorationState(cwd)?.carriedResources).toEqual({ ferrite: 1 });
+      expect((await app.request("http://test/eva/move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: 0, y: 0 }) })).status).toBe(200);
+      expect((await app.request("http://test/eva/dock", { method: "POST" })).status).toBe(200);
+      expect(state.readInventoryState(cwd)?.resources).toEqual({ ferrite: 1 });
+      expect(state.readExplorationState(cwd)).toBeNull();
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
   test("GET /world/scan supplies the saved habitat id and preserves the Kepler response", async () => {
     const cwd = makeTempDir();
     const calls: unknown[] = [];
@@ -31,8 +62,9 @@ describe("Habitat API", () => {
 
     try {
       writeRegistration({ habitatUuid: "11111111-1111-4111-8111-111111111111", habitatId: "habitat-123", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      writeExplorationState({ humanId: "human-1", suitportModuleId: "suit-1", x: 3, y: -2, carriedResources: {}, maxCapacityKg: 10 }, cwd);
       const app = createApi(cwd, { scanWorld: async (_config, input) => { calls.push(input); return scanResponse; } });
-      const response = await app.request("http://test/world/scan?x=3&y=-2&sensorStrength=60&radiusTiles=0");
+      const response = await app.request("http://test/world/scan?sensorStrength=60&radiusTiles=0");
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual(scanResponse);
@@ -54,11 +86,10 @@ describe("Habitat API", () => {
       expect(await missingRegistration.json()).toEqual({ error: 'No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.' });
 
       writeRegistration({ habitatUuid: "11111111-1111-4111-8111-111111111111", habitatId: "habitat-123", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      writeExplorationState({ humanId: "human-1", suitportModuleId: "suit-1", x: 3, y: -2, carriedResources: {}, maxCapacityKg: 10 }, cwd);
       const cases = [
-        ["x=3.5&y=-2&sensorStrength=60&radiusTiles=0", "x must be an integer."],
-        ["x=3&y=nope&sensorStrength=60&radiusTiles=0", "y must be an integer."],
-        ["x=3&y=-2&sensorStrength=101&radiusTiles=0", "Sensor strength must be an integer from 0 through 100."],
-        ["x=3&y=-2&sensorStrength=60&radiusTiles=6", "Radius must be an integer from 0 through 5."],
+        ["sensorStrength=101&radiusTiles=0", "Sensor strength must be an integer from 0 through 100."],
+        ["sensorStrength=60&radiusTiles=6", "Radius must be an integer from 0 through 5."],
       ] as const;
       for (const [query, message] of cases) {
         const response = await app.request(`http://test/world/scan?${query}`);
@@ -146,7 +177,9 @@ describe("Habitat API", () => {
         ticksPerPulse: 1,
         status: "running" as const,
       },
+      contracts: { alerts: { schemaVersion: "1.0", schema: {} } },
       starterModules: [],
+      starterHumans: [],
       blueprints: [],
     };
 
@@ -195,7 +228,9 @@ describe("Habitat API", () => {
             streamUrl: "wss://planet.turingguild.com/planet/stream",
             apiToken: "upgraded-stream-secret",
             stream: { protocolVersion: "1.0", subscriptions: ["ticks"], currentTick: 900, tickIntervalMs: 5000, ticksPerPulse: 1, status: "running" },
+            contracts: { alerts: { schemaVersion: "1.0", schema: {} } },
             starterModules: [],
+            starterHumans: [],
             blueprints: [],
           };
         },

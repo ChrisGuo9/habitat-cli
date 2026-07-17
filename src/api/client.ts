@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import type { ApiBlueprint, ApiClockEvent, ApiClockStatus, ApiSolar, ApiState } from "./types";
 import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse, WorldScanResponse } from "../kepler";
-import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
-import type { KeplerStarterModule } from "../kepler";
+import type { HabitatAlertState, HabitatExplorationState, HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
+import type { KeplerStarterHuman, KeplerStarterModule } from "../kepler";
 import type { ConstructionStartResult, ConstructionCancellationResult } from "../construction";
 import type { SimulationResult } from "../simulation";
 
@@ -79,17 +79,24 @@ export const getResources = () => apiRequest<KeplerResourceCatalogResponse>("/ca
 export const getBlueprintViaApi = (id: string) => apiRequest<ApiBlueprint>(`/catalog/blueprints/${encodeURIComponent(id)}`);
 export const getSolarViaApi = () => apiRequest<ApiSolar>("/solar/irradiance");
 export const scanWorldViaApi = (
-  input: { x: number; y: number; sensorStrength: number; radiusTiles: number },
+  input: { sensorStrength: number; radiusTiles: number },
   fetchImplementation: typeof fetch = fetch,
 ) => {
   const query = new URLSearchParams({
-    x: String(input.x),
-    y: String(input.y),
     sensorStrength: String(input.sensorStrength),
     radiusTiles: String(input.radiusTiles),
   });
   return apiRequest<WorldScanResponse>(`/world/scan?${query}`, {}, fetchImplementation);
 };
+export const getHumans = () => apiRequest<{ humans: KeplerStarterHuman[] }>("/humans");
+export const moveHumanViaApi = (humanId: string, moduleId: string) => apiRequest<KeplerStarterHuman>(`/humans/${encodeURIComponent(humanId)}/location`, { method: "PATCH", body: JSON.stringify({ moduleId }) });
+export const getEvaStatus = () => apiRequest<HabitatExplorationState | null>("/eva");
+export const deployEva = (humanId: string) => apiRequest<HabitatExplorationState>("/eva/deploy", { method: "POST", body: JSON.stringify({ humanId }) });
+export const moveEva = (x: number, y: number) => apiRequest<HabitatExplorationState>("/eva/move", { method: "POST", body: JSON.stringify({ x, y }) });
+export const dockEva = () => apiRequest<{ inventory: HabitatInventoryState }>("/eva/dock", { method: "POST" });
+export const collectViaApi = (quantityKg: number) => apiRequest<unknown>("/collect", { method: "POST", body: JSON.stringify({ quantityKg }) });
+export const getAlerts = () => apiRequest<HabitatAlertState>("/alerts");
+export const acknowledgeAlertViaApi = (id: string) => apiRequest<unknown>(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: "POST" });
 export const getModules = () => apiRequest<HabitatModuleState | null>("/modules");
 export async function getModuleReferences(): Promise<ModuleReference[]> {
   const state = await getModules();

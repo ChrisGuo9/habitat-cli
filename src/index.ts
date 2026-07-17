@@ -7,6 +7,10 @@ import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
 import { registerScanCommand } from "./commands/scan";
 import { registerClockCommands } from "./commands/clock";
+import { registerHumanCommands } from "./commands/humans";
+import { registerEvaCommands } from "./commands/eva";
+import { registerCollectCommand } from "./commands/collect";
+import { registerAlertCommands } from "./commands/alerts";
 import {
   buildModuleStatusRows,
   formatModuleStatusTable,
@@ -264,6 +268,10 @@ registerCatalogCommands(program);
 registerScanCommand(program);
 registerClockCommands(program);
 registerInventoryCommands(program);
+registerHumanCommands(program);
+registerEvaCommands(program);
+registerCollectCommand(program);
+registerAlertCommands(program);
 
 powerCommand
   .command("overview")

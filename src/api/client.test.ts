@@ -3,7 +3,7 @@ import { apiBaseUrl, apiRequest, getClockStatus, scanWorldViaApi, setClockListen
 import type { WorldScanResponse } from "../kepler";
 
 describe("Habitat API client", () => {
-  test("scanWorldViaApi sends scan inputs without a habitat id", async () => {
+  test("scanWorldViaApi sends only sensor inputs because the backend owns position", async () => {
     const requests: Request[] = [];
     const response: WorldScanResponse = { scan: { modelVersion: "resource-probability-v2", origin: { x: 3, y: -2 }, sensorStrength: 60, radiusTiles: 1, tiles: [] } };
     const testFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -11,10 +11,10 @@ describe("Habitat API client", () => {
       return Response.json(response);
     }) as typeof fetch;
 
-    await expect(scanWorldViaApi({ x: 3, y: -2, sensorStrength: 60, radiusTiles: 1 }, testFetch)).resolves.toEqual(response);
+    await expect(scanWorldViaApi({ sensorStrength: 60, radiusTiles: 1 }, testFetch)).resolves.toEqual(response);
     const url = new URL(requests[0]!.url);
     expect(url.pathname).toBe("/world/scan");
-    expect(Object.fromEntries(url.searchParams)).toEqual({ x: "3", y: "-2", sensorStrength: "60", radiusTiles: "1" });
+    expect(Object.fromEntries(url.searchParams)).toEqual({ sensorStrength: "60", radiusTiles: "1" });
     expect(url.searchParams.has("habitatId")).toBe(false);
   });
 

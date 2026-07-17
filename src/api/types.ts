@@ -5,6 +5,9 @@ import type {
   HabitatModuleState,
   HabitatRegistration,
   HabitatSimulationState,
+  HabitatHumanState,
+  HabitatExplorationState,
+  HabitatAlertState,
 } from "../state";
 import type { ClockTickEvent } from "../clock-client";
 import type {
@@ -20,6 +23,9 @@ export type ApiState = {
   inventory: HabitatInventoryState | null;
   construction: HabitatConstructionState | null;
   simulation: HabitatSimulationState | null;
+  humans?: HabitatHumanState | null;
+  exploration?: HabitatExplorationState | null;
+  alerts?: HabitatAlertState | null;
 };
 
 export type ApiCatalog = KeplerBlueprintCatalogResponse | KeplerResourceCatalogResponse;
