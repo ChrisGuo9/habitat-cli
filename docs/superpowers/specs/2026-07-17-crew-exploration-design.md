@@ -12,7 +12,7 @@ The Habitat backend owns local humans, human module locations, the deployed expl
 
 Kepler owns the current sector boundary and authoritative tile resource type and quantity. The Hono backend obtains the current sector, scans tiles, and collects resources through Kepler's live contract. The CLI never calls Kepler and never receives the Kepler token; it calls only the local Hono API.
 
-The live registration response is the source of truth for starter modules, `starterHumans`, and `contracts.alerts`. No starter IDs, names, locations, suitport IDs, alert schema, sector bounds, or resource results are hard-coded.
+The live registration response is the source of truth for starter modules, `starterHumans`, and `contracts.alerts`. No starter IDs, names, locations, suitport IDs, alert schema, sector bounds, or resource results are hard-coded. Because Kepler correctly rejects replaying the existing registered UUID and the older client discarded the extra response fields, the current OpenAPI schema supplies Checkpoint 1's types; the lab's required fresh registration in Checkpoint 2 supplies the concrete two humans, module capabilities, and alert schema that are then inspected and persisted.
 
 ## Local state and focused modules
 
@@ -40,7 +40,7 @@ Human CLI output is readable by default and preserves the project's `--json` con
 
 ## EVA behavior
 
-Only one human may be deployed. Deployment requires that human to occupy the active starter module whose capabilities include `basic-suitport` behavior as represented by the live registration/module data. Deployment starts at `(0, 0)`.
+Only one human may be deployed. Deployment requires that human to occupy the active starter basic suitport identified from the live module's blueprint, capabilities, and runtime status rather than from a copied module ID. Deployment starts at `(0, 0)`.
 
 Each successful move changes exactly one coordinate by one while the other coordinate remains unchanged. Diagonal movement, jumps, movement without an explorer, and coordinates outside the live current-sector bounds are rejected without mutation. Docking is allowed only at `(0, 0)`.
 
