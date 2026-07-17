@@ -10,6 +10,66 @@ function makeTempDir(): string {
 }
 
 describe("Habitat API", () => {
+  test("GET /world/scan supplies the saved habitat id and preserves the Kepler response", async () => {
+    const cwd = makeTempDir();
+    const calls: unknown[] = [];
+    const scanResponse = {
+      scan: {
+        modelVersion: "resource-probability-v2" as const,
+        origin: { x: 3, y: -2 },
+        sensorStrength: 60,
+        radiusTiles: 0,
+        tiles: [{
+          x: 3, y: -2, terrain: "flat" as const, distanceTiles: 0,
+          probabilities: [{ resourceType: "ferrite", probabilityPct: 70 }, { resourceType: null, probabilityPct: 30 }],
+          topCandidate: { resourceType: "ferrite", probabilityPct: 70 },
+          quantityEstimate: { resourceType: "ferrite", unit: "kg" as const, estimatedKg: 180, minimumKg: 140, maximumKg: 220, exact: false },
+        }],
+      },
+    };
+
+    try {
+      writeRegistration({ habitatUuid: "11111111-1111-4111-8111-111111111111", habitatId: "habitat-123", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      const app = createApi(cwd, { scanWorld: async (_config, input) => { calls.push(input); return scanResponse; } });
+      const response = await app.request("http://test/world/scan?x=3&y=-2&sensorStrength=60&radiusTiles=0");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(scanResponse);
+      expect(calls).toEqual([{ habitatId: "habitat-123", x: 3, y: -2, sensorStrength: 60, radiusTiles: 0 }]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("GET /world/scan rejects missing registration and invalid scan inputs", async () => {
+    const cwd = makeTempDir();
+    let calls = 0;
+    const scanWorld = async () => { calls += 1; throw new Error("must not call Kepler"); };
+
+    try {
+      const app = createApi(cwd, { scanWorld });
+      const missingRegistration = await app.request("http://test/world/scan?x=3&y=-2&sensorStrength=60&radiusTiles=0");
+      expect(missingRegistration.status).toBe(400);
+      expect(await missingRegistration.json()).toEqual({ error: 'No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.' });
+
+      writeRegistration({ habitatUuid: "11111111-1111-4111-8111-111111111111", habitatId: "habitat-123", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      const cases = [
+        ["x=3.5&y=-2&sensorStrength=60&radiusTiles=0", "x must be an integer."],
+        ["x=3&y=nope&sensorStrength=60&radiusTiles=0", "y must be an integer."],
+        ["x=3&y=-2&sensorStrength=101&radiusTiles=0", "Sensor strength must be an integer from 0 through 100."],
+        ["x=3&y=-2&sensorStrength=60&radiusTiles=6", "Radius must be an integer from 0 through 5."],
+      ] as const;
+      for (const [query, message] of cases) {
+        const response = await app.request(`http://test/world/scan?${query}`);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: message });
+      }
+      expect(calls).toBe(0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("allows the local Vite dashboard to call the API", async () => {
     const response = await createApi().request("http://test/state", {
       method: "OPTIONS",

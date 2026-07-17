@@ -1,9 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { apiBaseUrl, apiRequest } from "./client";
+import { apiBaseUrl, apiRequest, scanWorldViaApi } from "./client";
+import type { WorldScanResponse } from "../kepler";
 
 describe("Habitat API client", () => {
+  test("scanWorldViaApi sends scan inputs without a habitat id", async () => {
+    const requests: Request[] = [];
+    const response: WorldScanResponse = { scan: { modelVersion: "resource-probability-v2", origin: { x: 3, y: -2 }, sensorStrength: 60, radiusTiles: 1, tiles: [] } };
+    const testFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(new Request(input, init));
+      return Response.json(response);
+    }) as typeof fetch;
+
+    await expect(scanWorldViaApi({ x: 3, y: -2, sensorStrength: 60, radiusTiles: 1 }, testFetch)).resolves.toEqual(response);
+    const url = new URL(requests[0]!.url);
+    expect(url.pathname).toBe("/world/scan");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ x: "3", y: "-2", sensorStrength: "60", radiusTiles: "1" });
+    expect(url.searchParams.has("habitatId")).toBe(false);
+  });
+
   test("uses the default API base URL and sends JSON", async () => {
     const requests: Request[] = [];
+    const previousBaseUrl = process.env.HABITAT_API_BASE_URL;
+    delete process.env.HABITAT_API_BASE_URL;
 
     const testFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push(new Request(input, init));
@@ -19,6 +37,8 @@ describe("Habitat API client", () => {
       expect(requests[0]?.url).toBe("http://localhost:8787/registration");
       expect(requests[0]?.headers.get("Content-Type")).toBe("application/json");
     } finally {
+      if (previousBaseUrl === undefined) delete process.env.HABITAT_API_BASE_URL;
+      else process.env.HABITAT_API_BASE_URL = previousBaseUrl;
     }
   });
 

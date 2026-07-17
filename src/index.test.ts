@@ -290,6 +290,55 @@ beforeAll(() => {
           });
         }
 
+        if (url.pathname === "/world/scan" && request.method === "GET") {
+          if (url.searchParams.get("habitatId") !== "habitat_11111111_1111_4111_8111_111111111111") {
+            return Response.json({ error: "missing habitatId" }, { status: 400 });
+          }
+          const x = Number(url.searchParams.get("x"));
+          const y = Number(url.searchParams.get("y"));
+          const sensorStrength = Number(url.searchParams.get("sensorStrength"));
+          const radiusTiles = Number(url.searchParams.get("radiusTiles"));
+          const exact = sensorStrength === 100;
+          const coordinates = radiusTiles === 0
+            ? [[x, y]]
+            : Array.from({ length: radiusTiles * 2 + 1 }, (_, row) =>
+                Array.from({ length: radiusTiles * 2 + 1 }, (_, column) => [x + column - radiusTiles, y + row - radiusTiles]),
+              ).flat();
+          return Response.json({
+            scan: {
+              modelVersion: "resource-probability-v2",
+              origin: { x, y },
+              sensorStrength,
+              radiusTiles,
+              tiles: coordinates.map(([tileX, tileY]) => {
+                const distanceTiles = Number(Math.hypot(tileX! - x, tileY! - y).toFixed(3));
+                return {
+                  x: tileX, y: tileY, terrain: "flat", distanceTiles,
+                  probabilities: exact && distanceTiles === 0
+                    ? [
+                        { resourceType: "ferrite", probabilityPct: 100 },
+                        { resourceType: "silicate-glass", probabilityPct: 0 },
+                        { resourceType: "conductive-ore", probabilityPct: 0 },
+                        { resourceType: "water-ice", probabilityPct: 0 },
+                        { resourceType: null, probabilityPct: 0 },
+                      ]
+                    : [
+                        { resourceType: "ferrite", probabilityPct: 55 },
+                        { resourceType: "silicate-glass", probabilityPct: 15 },
+                        { resourceType: "conductive-ore", probabilityPct: 10 },
+                        { resourceType: "water-ice", probabilityPct: 5 },
+                        { resourceType: null, probabilityPct: 15 },
+                      ],
+                  topCandidate: x === 99 ? { resourceType: null, probabilityPct: 55 } : { resourceType: "ferrite", probabilityPct: exact && distanceTiles === 0 ? 100 : 55 },
+                  quantityEstimate: x === 99 ? null : exact && distanceTiles === 0
+                    ? { resourceType: "ferrite", unit: "kg", estimatedKg: 184, minimumKg: 184, maximumKg: 184, exact: true }
+                    : { resourceType: "ferrite", unit: "kg", estimatedKg: 180, minimumKg: 140, maximumKg: 220, exact: false },
+                };
+              }),
+            },
+          });
+        }
+
         return new Response("not found", { status: 404 });
       })();
     },
@@ -739,10 +788,88 @@ describe("habitat cli", () => {
       expect(output).toContain("register");
       expect(output).toContain("status");
       expect(output).toContain("unregister");
+      expect(output).toContain("scan");
       expect(output).not.toContain("battery");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("scan prints every probability and a ranged quantity estimate for one tile", async () => {
+    const cwd = makeTempDir();
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const result = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Resource Scan");
+      expect(result.stdout).toContain("position");
+      expect(result.stdout).toContain("3, -2");
+      expect(result.stdout).toContain("sensorStrength");
+      expect(result.stdout).toContain("flat");
+      for (const resource of ["ferrite", "silicate-glass", "conductive-ore", "water-ice", "none"]) expect(result.stdout).toContain(resource);
+      expect(result.stdout).toContain("55%");
+      expect(result.stdout).toContain("180 kg (140-220 kg)");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("scan strength 100 prints an exact remaining quantity", async () => {
+    const cwd = makeTempDir();
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const result = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "100"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("100%");
+      expect(result.stdout).toContain("184 kg (exact)");
+      expect(result.stdout).toContain("minimumKg");
+      expect(result.stdout).toContain("maximumKg");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("scan leaves quantity empty when none is the top candidate", async () => {
+    const cwd = makeTempDir();
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const result = await runCli(["scan", "--x", "99", "--y", "-2", "--strength", "60"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("topCandidate     none");
+      expect(result.stdout).toContain("quantity      -");
+      expect(result.stdout).not.toContain("estimatedKg");
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("scan radius output summarizes every returned tile and JSON preserves the response", async () => {
+    const cwd = makeTempDir();
+    try {
+      await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const summary = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "1"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      expect(summary.exitCode).toBe(0);
+      expect(summary.stdout).toContain("COORDINATES");
+      expect(summary.stdout).toContain("DISTANCE");
+      expect(summary.stdout).toContain("CONFIDENCE");
+      expect(summary.stdout).toContain("2, -3");
+      expect(summary.stdout).toContain("4, -1");
+
+      const json = await runCli(["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "1", "--json"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+      const parsed = JSON.parse(json.stdout);
+      expect(parsed.scan).toMatchObject({ modelVersion: "resource-probability-v2", origin: { x: 3, y: -2 }, sensorStrength: 60, radiusTiles: 1 });
+      expect(parsed.scan.tiles).toHaveLength(9);
+      expect(parsed.scan.tiles[0].quantityEstimate).toMatchObject({ estimatedKg: 180, minimumKg: 140, maximumKg: 220, exact: false });
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  test("scan rejects invalid strength and radius without a stack trace", async () => {
+    const cwd = makeTempDir();
+    try {
+      for (const [args, message] of [
+        [["scan", "--x", "3", "--y", "-2", "--strength", "101"], "Sensor strength must be an integer from 0 through 100."],
+        [["scan", "--x", "3", "--y", "-2", "--strength", "60", "--radius", "6"], "Radius must be an integer from 0 through 5."],
+      ] as const) {
+        const result = await runCli([...args], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(message);
+        expect(result.stderr).not.toContain("at ");
+      }
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
   test("register persists habitat data and sends OpenAPI request keys", async () => {

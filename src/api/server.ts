@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { resolve } from "node:path";
 import { loadKeplerConfig } from "../config";
-import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprintCatalog, listResourceCatalog, registerHabitat } from "../kepler";
+import { getBlueprint, getHabitatRegistration, getSolarIrradiance, listBlueprintCatalog, listResourceCatalog, registerHabitat, scanWorld } from "../kepler";
 import { createModule, deleteModule, getModuleReference, hydrateModulesFromRegistration, readConstructionState, readInventoryState, readModuleState, readRegistration, readSimulationState, removeConstructionState, removeInventoryState, removeModuleState, removeRegistration, removeSimulationState, updateModule, writeConstructionState, writeInventoryState, writeModuleState, writeRegistration, writeSimulationState } from "../state";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate } from "../state";
 import { readServerConfig } from "./server-config";
@@ -15,6 +15,7 @@ type ApiDependencies = {
   getBlueprint?: typeof getBlueprint;
   listResourceCatalog?: typeof listResourceCatalog;
   getSolarIrradiance?: typeof getSolarIrradiance;
+  scanWorld?: typeof scanWorld;
   logger?: (line: string) => void;
 };
 
@@ -24,6 +25,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   const getOneBlueprint = dependencies.getBlueprint ?? getBlueprint;
   const listResources = dependencies.listResourceCatalog ?? listResourceCatalog;
   const getSolar = dependencies.getSolarIrradiance ?? getSolarIrradiance;
+  const scan = dependencies.scanWorld ?? scanWorld;
   const logger = dependencies.logger ?? console.log;
   const log = (message: string) => logger(`[habitat-api] ${message}`);
   const kepler = async <T>(method: string, path: string, action: () => Promise<T>, successStatus = 200): Promise<T> => {
@@ -200,6 +202,24 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   app.get("/catalog/blueprints/:id", async (c) => { try { const id = c.req.param("id"); return c.json(await kepler("GET", `/catalog/blueprints/${id}`, async () => ({ blueprint: await getOneBlueprint(loadKeplerConfig(), id) }))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/catalog/resources", async (c) => { try { return c.json(await kepler("GET", "/catalog/resources", () => listResources(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
   app.get("/solar/irradiance", async (c) => { try { return c.json(await kepler("GET", "/world/solar-irradiance", () => getSolar(loadKeplerConfig()))); } catch (error) { return c.json(jsonError(error), 502); } });
+  app.get("/world/scan", async (c) => {
+    try {
+      const registration = readRegistration(cwd);
+      if (!registration) {
+        return c.json({ error: 'No local habitat registration found. Run "habitat register --name \\"<habitat name>\\"" first.' }, 400);
+      }
+
+      const x = parseIntegerQuery(c.req.query("x"), "x must be an integer.");
+      const y = parseIntegerQuery(c.req.query("y"), "y must be an integer.");
+      const sensorStrength = parseRangedIntegerQuery(c.req.query("sensorStrength"), 0, 100, "Sensor strength must be an integer from 0 through 100.");
+      const radiusTiles = parseRangedIntegerQuery(c.req.query("radiusTiles"), 0, 5, "Radius must be an integer from 0 through 5.");
+      return c.json(await kepler("GET", "/world/scan", () => scan(loadKeplerConfig(), { habitatId: registration.habitatId, x, y, sensorStrength, radiusTiles })));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const validationError = message.endsWith("must be an integer.") || message.includes("must be an integer from");
+      return c.json({ error: message }, validationError ? 400 : 502);
+    }
+  });
   const statusHandler = async (c: Context) => {
     try {
       const reg = readRegistration(cwd);
@@ -212,6 +232,19 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   app.get("/habitat/status", statusHandler);
   app.get("/status", statusHandler);
   return app;
+}
+
+function parseIntegerQuery(value: string | undefined, message: string): number {
+  if (value === undefined || !/^-?\d+$/.test(value)) throw new Error(message);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(message);
+  return parsed;
+}
+
+function parseRangedIntegerQuery(value: string | undefined, minimum: number, maximum: number, message: string): number {
+  const parsed = parseIntegerQuery(value, message);
+  if (parsed < minimum || parsed > maximum) throw new Error(message);
+  return parsed;
 }
 
 export async function startServer(): Promise<void> {

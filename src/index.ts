@@ -5,6 +5,7 @@ import { apiRequest, cancelConstructionViaApi, createModuleViaApi, deleteModuleV
 import { runConstructionDryRun } from "./construction";
 import { registerInventoryCommands } from "./commands/construction";
 import { registerCatalogCommands } from "./commands/catalog";
+import { registerScanCommand } from "./commands/scan";
 import {
   buildModuleStatusRows,
   formatModuleStatusTable,
@@ -244,6 +245,7 @@ constructionCommand
 const moduleCommand = program.command("module").description("manage local habitat modules");
 const powerCommand = program.command("power").description("inspect local habitat power");
 registerCatalogCommands(program);
+registerScanCommand(program);
 registerInventoryCommands(program);
 
 powerCommand

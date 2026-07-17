@@ -1,0 +1,41 @@
+{
+  "scan": {
+    "modelVersion": "resource-probability-v2",
+    "origin": {
+      "x": 3,
+      "y": -3
+    },
+    "sensorStrength": 60,
+    "radiusTiles": 0,
+    "tiles": [
+      {
+        "x": 3,
+        "y": -3,
+        "terrain": "flat",
+        "distanceTiles": 0,
+        "probabilities": [
+          { "resourceType": "ice-regolith", "probabilityPct": 63.44 },
+          { "resourceType": null, "probabilityPct": 17.99 },
+          { "resourceType": "ferrite", "probabilityPct": 5.21 },
+          { "resourceType": "basalt-composite", "probabilityPct": 5.13 },
+          { "resourceType": "volatile-compounds", "probabilityPct": 3.25 },
+          { "resourceType": "silicate-glass", "probabilityPct": 3.24 },
+          { "resourceType": "rare-catalyst", "probabilityPct": 1 },
+          { "resourceType": "conductive-ore", "probabilityPct": 0.74 }
+        ],
+        "topCandidate": {
+          "resourceType": "ice-regolith",
+          "probabilityPct": 63.44
+        },
+        "quantityEstimate": {
+          "resourceType": "ice-regolith",
+          "unit": "kg",
+          "estimatedKg": 239,
+          "minimumKg": 159,
+          "maximumKg": 319,
+          "exact": false
+        }
+      }
+    ]
+  }
+}

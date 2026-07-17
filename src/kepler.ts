@@ -82,6 +82,48 @@ export type SolarIrradianceResponse = {
   };
 };
 
+export type WorldScanProbability = {
+  resourceType: string | null;
+  probabilityPct: number;
+};
+
+export type WorldScanQuantityEstimate = {
+  resourceType: string;
+  unit: "kg";
+  estimatedKg: number;
+  minimumKg: number;
+  maximumKg: number;
+  exact: boolean;
+};
+
+export type WorldScanTile = {
+  x: number;
+  y: number;
+  terrain: "flat";
+  distanceTiles: number;
+  probabilities: WorldScanProbability[];
+  topCandidate: WorldScanProbability;
+  quantityEstimate: WorldScanQuantityEstimate | null;
+};
+
+export type WorldScanResponse = {
+  scan: {
+    modelVersion: "resource-probability-v2";
+    origin: { x: number; y: number };
+    sensorStrength: number;
+    radiusTiles: number;
+    tiles: WorldScanTile[];
+  };
+};
+
+export type WorldScanInput = {
+  habitatId: string;
+  x: number;
+  y: number;
+  sensorStrength: number;
+  radiusTiles: number;
+};
+
 async function keplerRequest<T>(config: KeplerConfig, path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${config.baseUrl}${path}`, {
     ...init,
@@ -121,6 +163,17 @@ export function getHabitatRegistration(config: KeplerConfig, habitatId: string) 
 
 export function getSolarIrradiance(config: KeplerConfig) {
   return keplerRequest<SolarIrradianceResponse>(config, "/world/solar-irradiance", { method: "GET" });
+}
+
+export function scanWorld(config: KeplerConfig, input: WorldScanInput) {
+  const query = new URLSearchParams({
+    habitatId: input.habitatId,
+    x: String(input.x),
+    y: String(input.y),
+    sensorStrength: String(input.sensorStrength),
+    radiusTiles: String(input.radiusTiles),
+  });
+  return keplerRequest<WorldScanResponse>(config, `/world/scan?${query}`, { method: "GET" });
 }
 
 export function listBlueprintCatalog(config: KeplerConfig) {

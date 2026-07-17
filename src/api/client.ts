@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import type { ApiBlueprint, ApiSolar, ApiState } from "./types";
-import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse } from "../kepler";
+import type { KeplerBlueprintCatalogResponse, KeplerResourceCatalogResponse, WorldScanResponse } from "../kepler";
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate, ModuleReference } from "../state";
 import type { KeplerStarterModule } from "../kepler";
 import type { ConstructionStartResult, ConstructionCancellationResult } from "../construction";
@@ -78,6 +78,18 @@ export const getCatalog = () => apiRequest<KeplerBlueprintCatalogResponse>("/cat
 export const getResources = () => apiRequest<KeplerResourceCatalogResponse>("/catalog/resources");
 export const getBlueprintViaApi = (id: string) => apiRequest<ApiBlueprint>(`/catalog/blueprints/${encodeURIComponent(id)}`);
 export const getSolarViaApi = () => apiRequest<ApiSolar>("/solar/irradiance");
+export const scanWorldViaApi = (
+  input: { x: number; y: number; sensorStrength: number; radiusTiles: number },
+  fetchImplementation: typeof fetch = fetch,
+) => {
+  const query = new URLSearchParams({
+    x: String(input.x),
+    y: String(input.y),
+    sensorStrength: String(input.sensorStrength),
+    radiusTiles: String(input.radiusTiles),
+  });
+  return apiRequest<WorldScanResponse>(`/world/scan?${query}`, {}, fetchImplementation);
+};
 export const getModules = () => apiRequest<HabitatModuleState | null>("/modules");
 export async function getModuleReferences(): Promise<ModuleReference[]> {
   const state = await getModules();
