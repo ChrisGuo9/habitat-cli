@@ -27,7 +27,7 @@ export function registerScanCommand(program: Command): void {
         const radiusTiles = parseRangedInteger(options.radius, 0, 5, "Radius must be an integer from 0 through 5.");
         const response = await scanWorldViaApi({ x, y, sensorStrength, radiusTiles });
 
-        if (options.json) console.log(JSON.stringify(response, null, 2));
+        if (options.json || program.opts<{ json?: boolean }>().json) console.log(JSON.stringify(response, null, 2));
         else printScan(response);
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));

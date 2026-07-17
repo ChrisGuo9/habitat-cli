@@ -186,6 +186,7 @@ describe("Habitat API", () => {
 
     try {
       writeRegistration({ habitatUuid, habitatId: "habitat-legacy", displayName: "Artemis Ridge", baseUrl: "https://planet.turingguild.com", tokenSource: "test-token" }, cwd);
+      writeModuleState({ modules: [{ id: "built-module-1", blueprintId: "greenhouse", displayName: "Built Greenhouse", connectedTo: [], runtimeAttributes: {}, capabilities: [] }], blueprints: [] }, cwd);
       const app = createApi(cwd, {
         registerHabitat: async (_config, _displayName, uuid) => {
           requestedUuid = uuid;
@@ -209,6 +210,7 @@ describe("Habitat API", () => {
       expect(registered.status).toBe(201);
       expect(requestedUuid).toBe(habitatUuid);
       expect(readRegistration(cwd)?.habitatUuid).toBe(habitatUuid);
+      expect(readModuleState(cwd)?.modules.map((module) => module.id)).toEqual(["built-module-1"]);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

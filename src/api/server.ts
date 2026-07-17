@@ -84,7 +84,9 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       const { name } = await c.req.json<{ name?: string }>();
       if (!name) return c.json({ error: "Registration name is required." }, 400);
       const config = loadKeplerConfig();
-      const habitatUuid = readRegistration(cwd)?.habitatUuid ?? crypto.randomUUID();
+      const existingRegistration = readRegistration(cwd);
+      const existingModules = readModuleState(cwd);
+      const habitatUuid = existingRegistration?.habitatUuid ?? crypto.randomUUID();
       const response = await kepler("POST", "/habitats/register", () => register(config, name, habitatUuid), 201);
       writeRegistration({
         habitatId: response.habitatId,
@@ -97,7 +99,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
         stream: response.stream,
       }, cwd);
       writeClockState(defaultClockState(), cwd);
-      writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints), cwd);
+      if (!existingModules) writeModuleState(hydrateModulesFromRegistration(response.starterModules, response.blueprints), cwd);
       return c.json(readRegistration(cwd), 201);
     } catch (error) { return c.json(jsonError(error), 502); }
   });
