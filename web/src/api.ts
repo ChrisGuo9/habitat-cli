@@ -11,6 +11,11 @@ export function validateTickCount(value: string): number | null {
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export function resolveBrowserApiBaseUrl(location: Pick<Location, "protocol" | "hostname" | "port"> = window.location): string {
+  if (location.port === "8787") return `${location.protocol}//${location.hostname}:8787`;
+  return "http://127.0.0.1:8787";
+}
+
 export function createApiClient(baseUrl = "http://127.0.0.1:8787", fetcher: Fetcher = fetch) {
   const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     let response: Response;

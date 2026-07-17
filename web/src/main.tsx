@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { createApiClient, validateTickCount, type ApiState, type Module, type TickResponse } from "./api";
+import { createApiClient, resolveBrowserApiBaseUrl, validateTickCount, type ApiState, type Module, type TickResponse } from "./api";
 
-const api = createApiClient(import.meta.env.VITE_HABITAT_API_BASE_URL ?? "http://127.0.0.1:8787");
+const api = createApiClient(import.meta.env.VITE_HABITAT_API_BASE_URL ?? resolveBrowserApiBaseUrl());
 const attr = (module: Module, key: string) => module.runtimeAttributes[key];
 const numberAttr = (module: Module, key: string) => {
   const value = attr(module, key);

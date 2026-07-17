@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createApiClient, validateTickCount, type ApiState } from "./api";
+import { createApiClient, resolveBrowserApiBaseUrl, validateTickCount, type ApiState } from "./api";
 
 describe("dashboard API client", () => {
+  test("uses same-origin API when the built dashboard is served by Hono", () => {
+    expect(resolveBrowserApiBaseUrl({ protocol: "http:", hostname: "localhost", port: "8787" })).toBe("http://localhost:8787");
+  });
+
   test("uses the local REST backend by default", () => {
     const calls: string[] = [];
     const client = createApiClient(undefined, async (input) => {

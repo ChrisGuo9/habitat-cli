@@ -12,6 +12,8 @@
     "server": "bun run src/server.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "dev:web": "vite web --host 127.0.0.1",
+    "build:web": "vite build web --outDir ../dist/web --emptyOutDir",
     "web:dev": "vite web --host 127.0.0.1",
     "web:build": "vite build web --outDir ../dist/web --emptyOutDir"
   },
