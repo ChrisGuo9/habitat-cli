@@ -52,6 +52,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
     getSolar: () => kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig())),
   });
   const clockController = dependencies.clockController ?? createKeplerClockController({ cwd, tickService });
+  const publicRegistration = () => { const registration = readRegistration(cwd); if (!registration) return null; const { apiToken: _secret, ...safe } = registration; return safe; };
 
   app.use("*", cors({
     origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -84,7 +85,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
   });
 
   app.get("/registration", (c) => {
-    return c.json({ registration: readRegistration(cwd) });
+    return c.json({ registration: publicRegistration() });
   });
   app.post("/registration", async (c) => {
     try {
@@ -108,7 +109,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       writeClockState(defaultClockState(), cwd);
       if (existingModules) writeRegistration(registration, cwd);
       else hydrateRegistrationState({ registration, modules: hydrateModulesFromRegistration(response.starterModules, response.blueprints), humans: { humans: response.starterHumans }, alertContract: response.contracts.alerts }, cwd);
-      return c.json(readRegistration(cwd), 201);
+      return c.json(publicRegistration(), 201);
     } catch (error) { return c.json(jsonError(error), 502); }
   });
   app.delete("/registration", (c) => { removeRegistration(cwd); removeClockState(cwd); removeModuleState(cwd); removeSimulationState(cwd); removeInventoryState(cwd); removeConstructionState(cwd); removeHumanState(cwd); removeExplorationState(cwd); removeAlertContract(cwd); removeAlertState(cwd); return c.json({ ok: true }); });

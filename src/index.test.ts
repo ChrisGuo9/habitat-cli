@@ -982,7 +982,7 @@ describe("habitat cli", () => {
       expect(result.stdout).toContain("modules");
       expect(result.stdout).toContain("6");
       expect(result.stdout).toContain("wss://planet.turingguild.com/planet/stream");
-      expect(result.stdout).toContain("habitat-stream-secret");
+      expect(result.stdout).not.toContain("habitat-stream-secret");
       expect(result.stdout).toContain("protocolVersion");
       expect(result.stdout).toContain("ticksPerPulse");
       expect(requests).toEqual([
@@ -997,14 +997,15 @@ describe("habitat cli", () => {
     }
   });
 
-  test("status JSON exposes stable saved stream credential fields", async () => {
+  test("status JSON exposes stream metadata without the write-only credential", async () => {
     const cwd = makeTempDir();
     try {
       await runCli(["register", "--name", "Artemis Ridge"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       const result = await runCli(["--json", "status"], cwd, { KEPLER_BASE_URL: baseUrl, KEPLER_PLANET_TOKEN: "test-token" });
       expect(result.exitCode).toBe(0);
       const output = JSON.parse(result.stdout);
-      expect(output.registration).toMatchObject({ streamUrl: "wss://planet.turingguild.com/planet/stream", apiToken: "habitat-stream-secret", stream: { protocolVersion: "1.0", subscriptions: ["ticks"], currentTick: 800, tickIntervalMs: 5000, ticksPerPulse: 1, status: "running" } });
+      expect(output.registration).toMatchObject({ streamUrl: "wss://planet.turingguild.com/planet/stream", stream: { protocolVersion: "1.0", subscriptions: ["ticks"], currentTick: 800, tickIntervalMs: 5000, ticksPerPulse: 1, status: "running" } });
+      expect(output.registration).not.toHaveProperty("apiToken");
       expect(output.habitat).toMatchObject({ status: "online" });
       expect(output.modules).toBe(6);
     } finally { rmSync(cwd, { recursive: true, force: true }); }

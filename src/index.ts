@@ -64,7 +64,8 @@ program
       const state = await getApiState();
 
       if (program.opts<{ json?: boolean }>().json) {
-        console.log(JSON.stringify({ registration, habitat, modules: state.modules?.modules.length ?? 0 }));
+        const { apiToken: _secret, ...safeRegistration } = registration;
+        console.log(JSON.stringify({ registration: safeRegistration, habitat, modules: state.modules?.modules.length ?? 0 }));
         return;
       }
 
@@ -78,7 +79,6 @@ program
         ["lastSeenAt", habitat.lastSeenAt ?? "never"],
         ["modules", String(state.modules?.modules.length ?? 0)],
         ["streamUrl", registration.streamUrl ?? "not available"],
-        ["apiToken", registration.apiToken ?? "not available"],
         ["protocolVersion", registration.stream?.protocolVersion ?? "not available"],
         ["subscriptions", registration.stream?.subscriptions.join(", ") ?? "not available"],
         ["registrationCurrentTick", registration.stream ? String(registration.stream.currentTick) : "not available"],

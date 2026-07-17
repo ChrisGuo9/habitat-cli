@@ -6,6 +6,7 @@ import { acknowledgeAlert, observeAlert, resolveAlert } from "./alerts";
 import { deployExplorer, moveExplorer, validateCollection } from "./exploration";
 import { moveHuman } from "./humans";
 import {
+  dockExploration,
   hydrateRegistrationState,
   readAlertContract,
   readAlertState,
@@ -85,11 +86,23 @@ describe("crew state and behavior", () => {
     } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
+  test("docking rolls back when the deployed human is missing", () => {
+    const cwd = temp();
+    try {
+      writeHumanState({ humans: [] }, cwd);
+      writeExplorationState({ humanId: "missing", suitportModuleId: "suit-1", x: 0, y: 0, carriedResources: { ferrite: 2 }, maxCapacityKg: 10 }, cwd);
+      expect(() => dockExploration(cwd)).toThrow("Deployed human not found");
+      expect(readExplorationState(cwd)?.carriedResources).toEqual({ ferrite: 2 });
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
   test("alerts deduplicate unresolved conditions and support acknowledge and resolve", () => {
     const cwd = temp();
     try {
       writeAlertState({ alerts: [] }, cwd);
       const first = observeAlert({ condition: "human-outside", severity: "warning", source: "eva", subject: { type: "human", id: "human-1" } }, cwd, "2026-07-17T10:00:00.000Z");
+      expect(first).toMatchObject({ code: "human-outside", title: "Human deployed outside habitat", openedAt: "2026-07-17T10:00:00.000Z" });
+      expect(first.description).toBeString();
       const repeated = observeAlert({ condition: "human-outside", severity: "warning", source: "eva", subject: { type: "human", id: "human-1" } }, cwd, "2026-07-17T10:01:00.000Z");
       expect(repeated.id).toBe(first.id);
       expect(repeated.occurrenceCount).toBe(2);
