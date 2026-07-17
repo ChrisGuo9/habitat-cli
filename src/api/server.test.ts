@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./server";
-import { readClockState, readModuleState, readRegistration, writeModuleState, writeRegistration } from "../state";
+import { defaultClockState, readClockState, readModuleState, readRegistration, readSimulationState, writeClockState, writeModuleState, writeRegistration } from "../state";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "habitat-api-"));
@@ -349,6 +349,25 @@ describe("Habitat API", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("POST /ticks rejects manual ticks while Kepler listening mode is saved", async () => {
+    const cwd = makeTempDir();
+    try {
+      writeModuleState({ modules: [], blueprints: [] }, cwd);
+      writeClockState({ ...defaultClockState(), mode: "kepler" }, cwd);
+      const response = await createApi(cwd, {
+        getSolarIrradiance: async () => ({ solarIrradiance: { wPerM2: 0, condition: "dark" } }),
+      }).request("http://test/ticks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: 1 }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Manual ticks are disabled while listening to Kepler. Run `habitat clock listen off` to return to manual mode." });
+      expect(readSimulationState(cwd)).toBeNull();
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
   test("injectable logging records safe API and Kepler summaries", async () => {

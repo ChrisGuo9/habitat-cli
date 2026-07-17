@@ -8,7 +8,7 @@ import { createModule, defaultClockState, deleteModule, getModuleReference, hydr
 import type { HabitatInventoryState, HabitatModuleState, LocalModuleInput, LocalModuleUpdate } from "../state";
 import { readServerConfig } from "./server-config";
 import { cancelConstruction, startConstruction } from "../construction";
-import { runSimulationTicks } from "../simulation";
+import { createTickService } from "../tick-service";
 
 type ApiDependencies = {
   registerHabitat?: typeof registerHabitat;
@@ -35,6 +35,10 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
     catch (error) { logger(`[kepler] ${method} ${path} -> error`); throw error; }
   };
   const jsonError = (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) });
+  const tickService = createTickService({
+    cwd,
+    getSolar: () => kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig())),
+  });
 
   app.use("*", cors({
     origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -156,20 +160,7 @@ export function createApi(cwd = process.cwd(), dependencies: ApiDependencies = {
       if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
         return c.json({ error: "Tick count must be a positive integer." }, 400);
       }
-      const modules = readModuleState(cwd);
-      if (!modules) return c.json({ error: 'No local module state found. Run "habitat register --name \\"<habitat name>\\"" first.' }, 400);
-      const solar = await kepler("GET", "/world/solar-irradiance", () => getSolarIrradiance(loadKeplerConfig()));
-      const result = runSimulationTicks({
-        moduleState: modules,
-        simulationState: readSimulationState(cwd) ?? { currentTick: 0 },
-        tickCount: count,
-        solarIrradianceWPerM2: solar.solarIrradiance.wPerM2,
-        constructionState: readConstructionState(cwd),
-      });
-      writeModuleState(result.moduleState, cwd);
-      writeSimulationState(result.simulationState, cwd);
-      writeConstructionState(result.constructionState, cwd);
-      return c.json({ ...result, solarIrradiance: solar.solarIrradiance });
+      return c.json(await tickService.runManual(count));
     } catch (error) { return c.json(jsonError(error), 400); }
   });
   app.post("/construction/jobs", async (c) => {
